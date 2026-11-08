@@ -46,7 +46,7 @@ export const api = {
 
   async loadTree(id) {
     const [people, marriages, parents] = await Promise.all([
-      selectAll('people', 'id, name, gender, birth_year, death_year, family, notes, updated_at', q => q.eq('tree_id', id)),
+      selectAll('people', 'id, name, gender, birth_year, death_year, family, notes, phone, updated_at', q => q.eq('tree_id', id)),
       selectAll('marriages', 'id, husband_id, wife_id, status, year, notes', q => q.eq('tree_id', id)),
       selectAll('parent_links', 'id, child_id, father_id, mother_id, type', q => q.eq('tree_id', id)),
     ]);

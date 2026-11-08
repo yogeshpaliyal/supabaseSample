@@ -90,6 +90,9 @@ form input + .btn { margin-top: 8px; }
 .chip { background: var(--soft); border-radius: 16px; padding: 5px 11px; font-size: 13.5px; cursor: pointer; }
 .chip.M { background: var(--m); } .chip.F { background: var(--f); }
 .tagline { font-size: 11.5px; color: var(--muted); margin-left: 4px; }
+.contact { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.contact .num { font-weight: 650; letter-spacing: .02em; }
+.btn.wa { background: #1f8f4e; }
 .prof-head { display: flex; gap: 12px; align-items: center; margin-top: 4px; }
 .prof-head .av { width: 54px; height: 54px; font-size: 20px; }
 .path { line-height: 2.1; } .path .arrow { color: var(--muted); font-size: 12.5px; margin: 0 4px; }

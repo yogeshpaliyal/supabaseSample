@@ -38,7 +38,7 @@ const who = p => (p && (p.display_name || p.email)) || 'Someone';
 // ============ Data model (normalised to the shape the UI code uses) ============
 function setData(raw) {
   S.DB = {
-    people: raw.people.map(p => ({ ID: p.id, Name: p.name, Gender: p.gender || '', BirthYear: p.birth_year ?? '', DeathYear: p.death_year ?? '', Family: p.family || '', Notes: p.notes || '' })),
+    people: raw.people.map(p => ({ ID: p.id, Name: p.name, Gender: p.gender || '', BirthYear: p.birth_year ?? '', DeathYear: p.death_year ?? '', Family: p.family || '', Notes: p.notes || '', Phone: p.phone || '' })),
     marriages: raw.marriages.map(m => ({ ID: m.id, HusbandID: m.husband_id, WifeID: m.wife_id, Status: m.status, Year: m.year ?? '', Notes: m.notes || '' })),
     parents: raw.parents.map(r => ({ ID: r.id, ChildID: r.child_id, FatherID: r.father_id || '', MotherID: r.mother_id || '', Type: r.type })),
   };
@@ -74,6 +74,14 @@ function relOf(p) {
   const m = marriagesOf(p.ID)[0];
   if (m) return (p.Gender === 'F' ? 'w/o ' : p.Gender === 'M' ? 'h/o ' : 'spouse of ') + spouseOf(m, p.ID).Name;
   return '';
+}
+const digits = s => String(s || '').replace(/\D/g, '');
+function waNumber(ph) { // WhatsApp needs country code; assume India for 10-digit numbers
+  const d = digits(ph);
+  if (String(ph).trim().startsWith('+')) return d;
+  if (d.length === 10) return '91' + d;
+  if (d.length === 11 && d[0] === '0') return '91' + d.slice(1);
+  return d;
 }
 const label = p => p.Name + (p.BirthYear ? ' (' + p.BirthYear + ')' : '') + (relOf(p) ? ' ' + relOf(p) : '');
 const avatar = p => '<span class="av ' + esc(p.Gender) + '">' + esc(initials(p.Name)) + '</span>';
@@ -182,7 +190,7 @@ function tab(t) {
 function renderList() {
   const q = $('q').value.trim().toLowerCase();
   const rank = p => { const n = p.Name.toLowerCase(); return !q ? 0 : n.startsWith(q) ? 0 : n.includes(q) ? 1 : 2; };
-  const rows = S.DB.people.filter(p => !q || [p.Name, p.Family, p.Notes, relOf(p)].join(' ').toLowerCase().includes(q)).sort((a, b) => rank(a) - rank(b) || byName(a, b));
+  const rows = S.DB.people.filter(p => !q || ([p.Name, p.Family, p.Notes, relOf(p)].join(' ').toLowerCase().includes(q) || (digits(q).length >= 3 && digits(p.Phone).includes(digits(q))))).sort((a, b) => rank(a) - rank(b) || byName(a, b));
   $('count').textContent = rows.length + ' of ' + S.DB.people.length + ' people';
   $('list').innerHTML = rows.length ? rows.slice(0, 300).map(p =>
     '<div class="item" onclick="App.openProfile(\'' + esc(p.ID) + '\', true)">' + avatar(p) +
@@ -244,6 +252,9 @@ function profileHtml(p) {
     '</div><div style="text-align:right"><button class="icon-btn" onclick="App.closeProfile()">✕</button></div></div>';
   h += '<div class="prof-head">' + avatar(p) + '<div><h2 style="margin:0">' + esc(p.Name) + '</h2><div class="sub">' +
     esc([p.Gender === 'M' ? 'Male' : p.Gender === 'F' ? 'Female' : '', years(p), p.Family, relOf(p)].filter(Boolean).join(' · ')) + '</div></div></div>';
+  if (p.Phone) h += '<div class="contact"><span class="num">📞 ' + esc(p.Phone) + '</span><span class="spacer"></span>' +
+    '<a class="btn sm" href="tel:' + esc(p.Phone.replace(/[^+0-9]/g, '')) + '">Call</a>' +
+    '<a class="btn sm wa" href="https://wa.me/' + esc(waNumber(p.Phone)) + '" target="_blank" rel="noopener">WhatsApp</a></div>';
   if (p.Notes) h += '<p style="margin:10px 0 0">' + esc(p.Notes) + '</p>';
   h += '<div class="actions"><button class="btn sm" onclick="App.showInTree(\'' + e + '\')">🌳 Show in tree</button>' +
     '<button class="btn sm ghost" onclick="App.closeProfile(); App.navigate({mode:\'desc\', root:\'' + e + '\', sel:\'' + e + '\'}); App.tab(\'tree\')">Descendants</button>' +
@@ -340,12 +351,12 @@ function openEdit(id, preset) {
   if (!preset) S.addFromTree = false;
   const p = P[id];
   F = {
-    person: Object.assign({ ID: '', Name: '', Gender: '', BirthYear: '', DeathYear: '', Family: '', Notes: '' }, p || (preset && preset.person) || {}),
+    person: Object.assign({ ID: '', Name: '', Gender: '', BirthYear: '', DeathYear: '', Family: '', Notes: '', Phone: '' }, p || (preset && preset.person) || {}),
     parents: p ? parentRows(id).map(r => ({ FatherID: r.FatherID, MotherID: r.MotherID, Type: r.Type || 'Biological' })) : ((preset && preset.parents) || []),
     marriages: p ? marriagesOf(id).map(m => ({ SpouseID: spouseOf(m, id).ID, Status: m.Status || 'Current', Year: m.Year, Notes: m.Notes })) : ((preset && preset.marriages) || []),
   };
   if (!F.parents.some(r => r.Type !== 'Adopted')) F.parents.unshift({ FatherID: '', MotherID: '', Type: 'Biological' });
-  ['Name', 'Gender', 'BirthYear', 'DeathYear', 'Family', 'Notes'].forEach(k => ($('f_' + k).value = F.person[k] ?? ''));
+  ['Name', 'Gender', 'BirthYear', 'DeathYear', 'Family', 'Notes', 'Phone'].forEach(k => ($('f_' + k).value = F.person[k] ?? ''));
   const direct = can('editor');
   $('formTitle').textContent = (p ? (direct ? 'Edit ' : 'Suggest changes to ') + p.Name : (direct ? 'Add person' : 'Suggest a new person'));
   $('formNote').hidden = direct;
@@ -360,7 +371,7 @@ function openEdit(id, preset) {
 }
 function closeEdit() { $('editOv').classList.remove('show'); S.addFromTree = false; }
 function pbtn(val, ph, onclick) { const p = P[val]; return '<button class="pickbtn' + (p ? '' : ' emptyv') + '" onclick="' + onclick + '">' + esc(p ? label(p) : ph) + '</button>'; }
-function readForm() { ['Name', 'Gender', 'BirthYear', 'DeathYear', 'Family', 'Notes'].forEach(k => (F.person[k] = $('f_' + k).value.trim())); }
+function readForm() { ['Name', 'Gender', 'BirthYear', 'DeathYear', 'Family', 'Notes', 'Phone'].forEach(k => (F.person[k] = $('f_' + k).value.trim())); }
 function renderRelRows() {
   $('f_parents').innerHTML = F.parents.map((r, i) =>
     '<div class="relrow"><div class="row2"><div class="sub">' + (r.Type === 'Adopted' ? 'Adoptive parents' : 'Birth parents') + '</div>' +
@@ -385,7 +396,7 @@ function pickSpouse(i) { readForm(); const self = F.person.ID; pick('Choose spou
 function payloadFromForm() {
   const p = F.person;
   return {
-    person: { id: p.ID || null, name: p.Name, gender: p.Gender || null, birth_year: p.BirthYear || null, death_year: p.DeathYear || null, family: p.Family || null, notes: p.Notes || null },
+    person: { id: p.ID || null, name: p.Name, gender: p.Gender || null, birth_year: p.BirthYear || null, death_year: p.DeathYear || null, family: p.Family || null, notes: p.Notes || null, phone: p.Phone || null },
     parents: F.parents.filter(r => r.FatherID || r.MotherID).map(r => ({ father_id: r.FatherID || null, mother_id: r.MotherID || null, type: r.Type })),
     marriages: F.marriages.filter(m => m.SpouseID).map(m => ({ spouse_id: m.SpouseID, status: m.Status, year: m.Year || null, notes: m.Notes || null })),
   };
@@ -400,6 +411,7 @@ function summarize(pl) {
 async function save() {
   readForm();
   if (!F.person.Name) return toast('Name is required');
+  if (F.person.Phone && !/^\+?[0-9][0-9 ()-]{5,19}$/.test(F.person.Phone)) return toast('Mobile number should contain only digits (and an optional + country code)', 3500);
   const pl = payloadFromForm();
   try {
     if (can('editor')) {
@@ -651,7 +663,7 @@ function describePayload(r) {
     return '<div class="diff">Remove <b>' + esc(p ? label(p) : 'a person who is no longer in the tree') + '</b> and their links.</div>';
   }
   const pl = r.payload, np = pl.person || {}, old = np.id ? P[np.id] : null;
-  const fields = [['Name', 'name', 'Name'], ['Gender', 'gender', 'Gender'], ['Birth year', 'birth_year', 'BirthYear'], ['Death year', 'death_year', 'DeathYear'], ['Family', 'family', 'Family'], ['Notes', 'notes', 'Notes']];
+  const fields = [['Name', 'name', 'Name'], ['Gender', 'gender', 'Gender'], ['Birth year', 'birth_year', 'BirthYear'], ['Death year', 'death_year', 'DeathYear'], ['Family', 'family', 'Family'], ['Mobile', 'phone', 'Phone'], ['Notes', 'notes', 'Notes']];
   let h = '<div class="diff">';
   fields.forEach(([lbl, k, ok]) => {
     const nv = np[k] == null ? '' : String(np[k]), ov = old ? String(old[ok] ?? '') : '';
