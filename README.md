@@ -4,6 +4,8 @@ A mobile-first family tree for a whole village, with per-tree access control.
 Backend is Supabase (Postgres + Auth + row-level security); the frontend is a static
 site in `web/` deployed to GitHub Pages.
 
+**Live:** https://github.yogeshpaliyal.com/supabaseSample/
+
 ## Features
 
 - **Roles per tree**: viewer (read), contributor (suggest changes), editor (edit + approve), owner (manage members)
@@ -33,10 +35,10 @@ Tables are read-only to clients and protected by RLS; anonymous users can read n
 ## One-time setup
 
 1. **GitHub Pages**: Settings → Pages → Source: *GitHub Actions*. Pushing to `main` deploys `web/`.
-   The site will be at `https://<user>.github.io/<repo>/`.
+   Live at https://github.yogeshpaliyal.com/supabaseSample/ (custom domain of the account's Pages).
 2. **Supabase Auth URLs**: Dashboard → Authentication → URL Configuration
-   - Site URL: your Pages URL
-   - Redirect URLs: your Pages URL (and `http://localhost:8000/**` for local testing)
+   - Site URL: `https://github.yogeshpaliyal.com/supabaseSample/`
+   - Redirect URLs: `https://github.yogeshpaliyal.com/supabaseSample/**` (and `http://localhost:8000/**` for local testing)
 3. **Google sign-in**: create an OAuth client (Web) in Google Cloud Console with redirect URI
    `https://<project-ref>.supabase.co/auth/v1/callback`, then paste the client ID/secret into
    Dashboard → Authentication → Providers → Google.
