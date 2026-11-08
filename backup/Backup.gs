@@ -43,10 +43,10 @@ function backupNow() {
   });
 
   writeTab_('Backup · People',
-    ['Tree', 'Name', 'Gender', 'Birth year', 'Death year', 'Family / Gotra', 'Mobile', 'Father', 'Mother', 'Spouse(s)', 'Notes', 'id', 'father_id', 'mother_id', 'updated_at'],
+    ['Tree', 'Name', 'Gender', 'Birth year', 'Death year', 'Family / Gotra', 'Village', 'Mobile', 'Father', 'Mother', 'Spouse(s)', 'Notes', 'id', 'father_id', 'mother_id', 'updated_at'],
     d.people.map(p => {
       const l = bio[p.id] || {};
-      return [treeName[p.tree_id] || '', p.name, p.gender || '', p.birth_year || '', p.death_year || '', p.family || '', p.phone || '',
+      return [treeName[p.tree_id] || '', p.name, p.gender || '', p.birth_year || '', p.death_year || '', p.family || '', p.village || '', p.phone || '',
               nm(l.father_id), nm(l.mother_id), (spouses[p.id] || []).join(', '), p.notes || '', p.id, l.father_id || '', l.mother_id || '', p.updated_at];
     }));
   writeTab_('Backup · Marriages', ['Tree', 'Husband', 'Wife', 'Status', 'Year', 'Notes', 'id', 'husband_id', 'wife_id'],

@@ -73,9 +73,11 @@
     <div class="toolbar">
       <select id="rootSel" onchange="App.navigate({mode:'desc', root:this.value})"></select>
       <div class="seg"><button id="mDesc" onclick="App.setMode('desc')">Full tree</button><button id="mExp" onclick="App.setMode('explore')">Explore</button><button id="mAnc" onclick="App.setMode('anc')">Ancestors</button></div>
+      <div class="seg" id="ancSides" hidden><button id="ancMale" onclick="App.setAncBoth(false)">Father’s line</button><button id="ancBoth" onclick="App.setAncBoth(true)">Both sides</button></div>
     </div>
     <div class="toolbar">
       <button class="btn sm" onclick="App.findInTree()">🔍 Find</button>
+      <button class="btn sm ghost" id="selBtn" onclick="App.toggleSelect()">☑ Select</button>
       <button class="btn sm ghost" onclick="App.back()">← Back</button>
       <button class="btn sm ghost" onclick="App.expandAll(true)">Expand all</button>
       <button class="btn sm ghost" onclick="App.expandAll(false)">Collapse</button>
@@ -109,6 +111,7 @@
       <div class="field"><label>Birth year</label><input id="f_BirthYear" inputmode="numeric"></div>
       <div class="field"><label>Death year</label><input id="f_DeathYear" inputmode="numeric"></div>
     </div>
+    <div class="field"><label>Village</label><input id="f_Village" placeholder="e.g. Khaboniya"></div>
     <div class="field"><label>Mobile number <span class="muted">(optional)</span></label><input id="f_Phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="98765 43210"></div>
     <div class="field"><label>Notes</label><textarea id="f_Notes" rows="2"></textarea></div>
     <h3>Parents</h3>
@@ -132,7 +135,8 @@
     <div id="parNote" class="hint" hidden></div>
     <h3>Father</h3><div id="parF"></div>
     <h3>Mother</h3><div id="parM"></div>
-    <div class="field" id="parFamWrap" style="margin-top:12px"><label>Father’s family / gotra</label><input id="parFamily"></div>
+    <div class="row2" style="margin-top:12px"><div class="field" id="parFamWrap"><label>Father’s family / gotra</label><input id="parFamily"></div>
+      <div class="field"><label>Their village</label><input id="parVillage" placeholder="e.g. maika village"></div></div>
     <div class="actions"><span class="spacer"></span><button class="btn ghost" onclick="App.closeParents()">Cancel</button><button class="btn" id="parSave" onclick="App.saveParents()">Save</button></div>
   </div>
 </div>
@@ -142,6 +146,27 @@
     <h2 id="pickTitle">Choose</h2>
     <input id="pickQ" type="search" placeholder="Type to search…" oninput="App.renderPick()">
     <div class="list plist" id="pickList"></div>
+  </div>
+</div>
+
+<div id="selBar" hidden>
+  <span id="selCount">Tap people to select</span><span class="spacer"></span>
+  <button class="btn sm ghost" onclick="App.clearPicked()">Clear</button>
+  <button class="btn sm" id="selEdit" onclick="App.openBulk()" disabled>Edit</button>
+  <button class="icon-btn" title="Done" onclick="App.toggleSelect()">✕</button>
+</div>
+
+<div class="overlay" id="bulkOv" onclick="if(event.target===this) App.closeBulk()">
+  <div class="sheet">
+    <h2 id="bulkTitle">Edit people</h2>
+    <div id="bulkNote" class="hint" hidden>Your changes will be sent to the tree editors for approval.</div>
+    <div class="applyall" id="applyAll">
+      <div class="sub">Apply to everyone selected</div>
+      <div class="row2"><input id="allFamily" placeholder="Family / Gotra"><input id="allVillage" placeholder="Village"><select id="allGender"><option value="">Gender…</option><option value="M">Male</option><option value="F">Female</option></select>
+      <button class="btn sm" onclick="App.applyAll()">Apply</button></div>
+    </div>
+    <div id="bulkRows"></div>
+    <div class="actions"><span class="spacer"></span><button class="btn ghost" onclick="App.closeBulk()">Cancel</button><button class="btn" id="bulkSave" onclick="App.saveBulk()">Save</button></div>
   </div>
 </div>
 

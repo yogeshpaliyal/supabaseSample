@@ -46,7 +46,7 @@ export const api = {
 
   async loadTree(id) {
     const [people, marriages, parents] = await Promise.all([
-      selectAll('people', 'id, name, gender, birth_year, death_year, family, notes, phone, updated_at', q => q.eq('tree_id', id)),
+      selectAll('people', 'id, name, gender, birth_year, death_year, family, village, notes, phone, updated_at', q => q.eq('tree_id', id)),
       selectAll('marriages', 'id, husband_id, wife_id, status, year, notes', q => q.eq('tree_id', id)),
       selectAll('parent_links', 'id, child_id, father_id, mother_id, type', q => q.eq('tree_id', id)),
     ]);
@@ -55,6 +55,7 @@ export const api = {
 
   // ---- edits
   async savePerson(tree, payload) { return check(await sb.rpc('save_person', { p_tree: tree, p: payload })); },
+  async savePeople(tree, payload) { return check(await sb.rpc('save_people', { p_tree: tree, p: payload })); },
   async deletePerson(tree, id) { return check(await sb.rpc('delete_person', { p_tree: tree, p_id: id })); },
   async submitRequest(tree, kind, payload, summary) {
     return check(await sb.rpc('submit_edit_request', { p_tree: tree, p_kind: kind, p_payload: payload, p_summary: summary }));

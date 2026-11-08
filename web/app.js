@@ -19,6 +19,7 @@ const $ = id => document.getElementById(id);
 const can = r => S.role && RANK[S.role] >= RANK[r];
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+S.ancBoth = store.get('ancBoth') === '1';
 
 function toast(msg, ms = 2200) {
   const el = $('toast'); el.textContent = msg; el.style.display = msg ? 'block' : 'none';
@@ -38,7 +39,7 @@ const who = p => (p && (p.display_name || p.email)) || 'Someone';
 // ============ Data model (normalised to the shape the UI code uses) ============
 function setData(raw) {
   S.DB = {
-    people: raw.people.map(p => ({ ID: p.id, Name: p.name, Gender: p.gender || '', BirthYear: p.birth_year ?? '', DeathYear: p.death_year ?? '', Family: p.family || '', Notes: p.notes || '', Phone: p.phone || '' })),
+    people: raw.people.map(p => ({ ID: p.id, Name: p.name, Gender: p.gender || '', BirthYear: p.birth_year ?? '', DeathYear: p.death_year ?? '', Family: p.family || '', Village: p.village || '', Notes: p.notes || '', Phone: p.phone || '' })),
     marriages: raw.marriages.map(m => ({ ID: m.id, HusbandID: m.husband_id, WifeID: m.wife_id, Status: m.status, Year: m.year ?? '', Notes: m.notes || '' })),
     parents: raw.parents.map(r => ({ ID: r.id, ChildID: r.child_id, FatherID: r.father_id || '', MotherID: r.mother_id || '', Type: r.type })),
   };
@@ -154,6 +155,7 @@ async function openTree(t) {
   $('tabInbox').hidden = !can('contributor');
   $('addBtn').textContent = can('editor') ? '+ Add' : can('contributor') ? '+ Suggest' : '';
   $('addBtn').hidden = !can('contributor');
+  $('selBtn').hidden = !can('contributor'); if (S.selectMode) toggleSelect();
   updateCounts(t);
   show('scrApp');
   tab((S.tab === 'members' && !can('owner')) || (S.tab === 'inbox' && !can('contributor')) ? 'people' : S.tab);
@@ -182,6 +184,7 @@ function tab(t) {
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
   ['people', 'tree', 'inbox', 'members'].forEach(x => ($('p' + x[0].toUpperCase() + x.slice(1)).hidden = x !== t));
   if (t === 'tree') { renderTree(true); }
+  updateSelBar();
   if (t === 'inbox') renderInbox();
   if (t === 'members') renderMembers();
 }
@@ -190,11 +193,11 @@ function tab(t) {
 function renderList() {
   const q = $('q').value.trim().toLowerCase();
   const rank = p => { const n = p.Name.toLowerCase(); return !q ? 0 : n.startsWith(q) ? 0 : n.includes(q) ? 1 : 2; };
-  const rows = S.DB.people.filter(p => !q || ([p.Name, p.Family, p.Notes, relOf(p)].join(' ').toLowerCase().includes(q) || (digits(q).length >= 3 && digits(p.Phone).includes(digits(q))))).sort((a, b) => rank(a) - rank(b) || byName(a, b));
+  const rows = S.DB.people.filter(p => !q || ([p.Name, p.Family, p.Village, p.Notes, relOf(p)].join(' ').toLowerCase().includes(q) || (digits(q).length >= 3 && digits(p.Phone).includes(digits(q))))).sort((a, b) => rank(a) - rank(b) || byName(a, b));
   $('count').textContent = rows.length + ' of ' + S.DB.people.length + ' people';
   $('list').innerHTML = rows.length ? rows.slice(0, 300).map(p =>
     '<div class="item" onclick="App.openProfile(\'' + esc(p.ID) + '\', true)">' + avatar(p) +
-    '<div class="grow"><div class="nm">' + esc(p.Name) + '</div><div class="sub">' + esc([years(p), relOf(p), p.Family].filter(Boolean).join(' · ')) + '</div></div></div>'
+    '<div class="grow"><div class="nm">' + esc(p.Name) + '</div><div class="sub">' + esc([years(p), relOf(p), p.Family, p.Village].filter(Boolean).join(' · ')) + '</div></div></div>'
   ).join('') + (rows.length > 300 ? '<div class="muted small">Showing first 300 — refine your search.</div>' : '')
     : '<div class="empty">' + (S.DB.people.length ? 'No match.' : 'No people yet.' + (can('contributor') ? ' Tap “+ Add” to start.' : '')) + '</div>';
 }
@@ -253,7 +256,8 @@ function profileHtml(p) {
   let h = '<div class="row2" style="align-items:center"><div>' + (profHist.length > 1 ? '<button class="btn sm ghost" onclick="App.profBack()">← Back</button>' : '') +
     '</div><div style="text-align:right"><button class="icon-btn" onclick="App.closeProfile()">✕</button></div></div>';
   h += '<div class="prof-head">' + avatar(p) + '<div><h2 style="margin:0">' + esc(p.Name) + '</h2><div class="sub">' +
-    esc([p.Gender === 'M' ? 'Male' : p.Gender === 'F' ? 'Female' : '', years(p), p.Family, relOf(p)].filter(Boolean).join(' · ')) + '</div></div></div>';
+    esc([p.Gender === 'M' ? 'Male' : p.Gender === 'F' ? 'Female' : '', years(p), p.Family, relOf(p)].filter(Boolean).join(' · ')) + '</div>' +
+    (p.Village ? '<div class="sub">📍 ' + esc(p.Village) + '</div>' : '') + '</div></div>';
   if (p.Phone) h += '<div class="contact"><span class="num">📞 ' + esc(p.Phone) + '</span><span class="spacer"></span>' +
     '<a class="btn sm" href="tel:' + esc(p.Phone.replace(/[^+0-9]/g, '')) + '">Call</a>' +
     '<a class="btn sm wa" href="https://wa.me/' + esc(waNumber(p.Phone)) + '" target="_blank" rel="noopener">WhatsApp</a></div>';
@@ -356,12 +360,12 @@ function openEdit(id, preset) {
   if (!preset) S.addFromTree = false;
   const p = P[id];
   F = {
-    person: Object.assign({ ID: '', Name: '', Gender: '', BirthYear: '', DeathYear: '', Family: '', Notes: '', Phone: '' }, p || (preset && preset.person) || {}),
+    person: Object.assign({ ID: '', Name: '', Gender: '', BirthYear: '', DeathYear: '', Family: '', Village: '', Notes: '', Phone: '' }, p || (preset && preset.person) || {}),
     parents: p ? parentRows(id).map(r => ({ FatherID: r.FatherID, MotherID: r.MotherID, Type: r.Type || 'Biological' })) : ((preset && preset.parents) || []),
     marriages: p ? marriagesOf(id).map(m => ({ SpouseID: spouseOf(m, id).ID, Status: m.Status || 'Current', Year: m.Year, Notes: m.Notes })) : ((preset && preset.marriages) || []),
   };
   if (!F.parents.some(r => r.Type !== 'Adopted')) F.parents.unshift({ FatherID: '', MotherID: '', Type: 'Biological' });
-  ['Name', 'Gender', 'BirthYear', 'DeathYear', 'Family', 'Notes', 'Phone'].forEach(k => ($('f_' + k).value = F.person[k] ?? ''));
+  ['Name', 'Gender', 'BirthYear', 'DeathYear', 'Family', 'Village', 'Notes', 'Phone'].forEach(k => ($('f_' + k).value = F.person[k] ?? ''));
   const direct = can('editor');
   $('formTitle').textContent = (p ? (direct ? 'Edit ' : 'Suggest changes to ') + p.Name : (direct ? 'Add person' : 'Suggest a new person'));
   $('formNote').hidden = direct;
@@ -376,7 +380,7 @@ function openEdit(id, preset) {
 }
 function closeEdit() { $('editOv').classList.remove('show'); S.addFromTree = false; }
 function pbtn(val, ph, onclick) { const p = P[val]; return '<button class="pickbtn' + (p ? '' : ' emptyv') + '" onclick="' + onclick + '">' + esc(p ? label(p) : ph) + '</button>'; }
-function readForm() { ['Name', 'Gender', 'BirthYear', 'DeathYear', 'Family', 'Notes', 'Phone'].forEach(k => (F.person[k] = $('f_' + k).value.trim())); }
+function readForm() { ['Name', 'Gender', 'BirthYear', 'DeathYear', 'Family', 'Village', 'Notes', 'Phone'].forEach(k => (F.person[k] = $('f_' + k).value.trim())); }
 function renderRelRows() {
   $('f_parents').innerHTML = F.parents.map((r, i) =>
     '<div class="relrow"><div class="row2"><div class="sub">' + (r.Type === 'Adopted' ? 'Adoptive parents' : 'Birth parents') + '</div>' +
@@ -431,7 +435,7 @@ function pickSpouse(i) { readForm(); const self = F.person.ID; pick('Choose spou
 function payloadFromForm() {
   const p = F.person;
   return {
-    person: { id: p.ID || null, name: p.Name, gender: p.Gender || null, birth_year: p.BirthYear || null, death_year: p.DeathYear || null, family: p.Family || null, notes: p.Notes || null, phone: p.Phone || null },
+    person: { id: p.ID || null, name: p.Name, gender: p.Gender || null, birth_year: p.BirthYear || null, death_year: p.DeathYear || null, family: p.Family || null, village: p.Village || null, notes: p.Notes || null, phone: p.Phone || null },
     parents: F.parents.filter(r => r.FatherID || r.MotherID).map(r => ({ father_id: r.FatherID || null, mother_id: r.MotherID || null, type: r.Type })),
     marriages: F.marriages.filter(m => m.SpouseID).map(m => ({ spouse_id: m.SpouseID, status: m.Status, year: m.Year || null, notes: m.Notes || null })),
     ...(F.marriages.some(m => m.SpouseID && (m.LinkKids || []).length)
@@ -483,7 +487,7 @@ function addChild(id, otherId) {
   if (p.Gender === 'F') { row.MotherID = id; row.FatherID = o ? o.ID : ''; } else { row.FatherID = id; row.MotherID = o ? o.ID : ''; }
   if (!otherId) { const ms = marriagesOf(id); if (ms.length === 1) { const s = spouseOf(ms[0], id); if (p.Gender === 'F') row.FatherID = s.ID; else row.MotherID = s.ID; } }
   const fam = (p.Gender === 'F' && o) ? o.Family : p.Family;
-  openEdit('', { person: { Family: fam }, parents: [row] });
+  openEdit('', { person: { Family: fam, Village: (p.Gender === 'F' && o) ? o.Village : p.Village }, parents: [row] });
 }
 function addChildFromTree(e, id) {
   e.stopPropagation(); if (moved) return;
@@ -499,7 +503,7 @@ function addSpouseFromTree(e, id) { e.stopPropagation(); if (moved) return; S.ad
 
 // ============ Add parents (e.g. a wife's father & mother) ============
 let PA = null;
-const personFields = p => ({ id: p.ID, name: p.Name, gender: p.Gender || null, birth_year: p.BirthYear || null, death_year: p.DeathYear || null, family: p.Family || null, notes: p.Notes || null, phone: p.Phone || null });
+const personFields = p => ({ id: p.ID, name: p.Name, gender: p.Gender || null, birth_year: p.BirthYear || null, death_year: p.DeathYear || null, family: p.Family || null, village: p.Village || null, notes: p.Notes || null, phone: p.Phone || null });
 function bioRow(id) { return parentRows(id).find(r => r.Type !== 'Adopted'); }
 function openParents(id, fromTree) {
   if (!can('contributor')) return;
@@ -508,7 +512,7 @@ function openParents(id, fromTree) {
   $('parTitle').textContent = (can('editor') ? 'Add parents of ' : 'Suggest parents of ') + p.Name;
   $('parNote').hidden = can('editor'); $('parNote').textContent = 'Your suggestion will be sent to the tree editors for approval.';
   $('parSave').textContent = can('editor') ? 'Save' : 'Send for approval';
-  $('parFamily').value = p.Family || '';
+  $('parFamily').value = p.Family || ''; $('parVillage').value = p.Village || '';
   renderParents();
   $('parOv').classList.add('show');
 }
@@ -530,8 +534,8 @@ function parPick(key) {
 function closeParents() { $('parOv').classList.remove('show'); }
 async function saveParents() {
   const np = {};
-  if (!PA.hasF) { if (PA.f.id) np.father_id = PA.f.id; else if (PA.f.name.trim()) np.father = { name: PA.f.name.trim(), family: $('parFamily').value.trim() || null }; }
-  if (!PA.hasM) { if (PA.m.id) np.mother_id = PA.m.id; else if (PA.m.name.trim()) np.mother = { name: PA.m.name.trim() }; }
+  if (!PA.hasF) { if (PA.f.id) np.father_id = PA.f.id; else if (PA.f.name.trim()) np.father = { name: PA.f.name.trim(), family: $('parFamily').value.trim() || null, village: $('parVillage').value.trim() || null }; }
+  if (!PA.hasM) { if (PA.m.id) np.mother_id = PA.m.id; else if (PA.m.name.trim()) np.mother = { name: PA.m.name.trim(), village: $('parVillage').value.trim() || null }; }
   if (!Object.keys(np).length) return toast('Enter the father or the mother');
   const child = P[PA.id], pl = { person: personFields(child), new_parents: np };
   try {
@@ -580,6 +584,22 @@ function topAncestor(id) {
   return cur;
 }
 function founders() { return S.DB.people.filter(p => !parentRows(p.ID).length && !(p.Gender === 'F' && marriagesOf(p.ID).length)); }
+// family list label: the gotra (if recorded), else the founder's name; repeated gotras also show the founder
+function famLabel(f, fs) {
+  const g = (f.p.Family || '').trim();
+  if (!g) return f.p.Name + ' family';
+  const dup = fs.filter(x => x.n > 1 && (x.p.Family || '').trim().toLowerCase() === g.toLowerCase()).length > 1;
+  return g + (dup ? ' · ' + f.p.Name : '') + (f.p.Village ? ' · ' + f.p.Village : '');
+}
+function inLaw(rootId, fs) {   // linked to a bigger family only through marriage
+  const big = fs[0] && fs[0].p.ID !== rootId ? lineage(fs[0].p.ID) : null;
+  return !!big && [...lineage(rootId)].some(x => marriagesOf(x).some(m => big.has(spouseOf(m, x).ID)));
+}
+function lineage(id) {   // a person and all their descendants (not spouses)
+  const out = new Set(), st = [id];
+  while (st.length) { const x = st.pop(); if (out.has(x)) continue; out.add(x); (PRP[x] || []).forEach(r => st.push(r.ChildID)); }
+  return out;
+}
 function descCount(id) {
   const seen = new Set(), st = [id];
   while (st.length) { const x = st.pop(); if (seen.has(x)) continue; seen.add(x); (PRP[x] || []).forEach(r => st.push(r.ChildID)); marriagesOf(x).forEach(m => (PRP[spouseOf(m, x).ID] || []).forEach(r => st.push(r.ChildID))); }
@@ -617,7 +637,7 @@ function descHtml(p, ctx, tag = {}, bdepth = 0) {
   ms.forEach((m, i) => {
     const sp = spouseOf(m, p.ID);
     head += '<div class="sp-row' + (ended(m) ? ' ended' : '') + '" title="' + esc(ended(m) ? m.Status : 'Spouse') + '"><span class="heart' + (ended(m) ? ' ended' : '') + '">♥' + (multi ? i + 1 : '') + '</span>' +
-      box(sp, { spouse: true, ended: ended(m), note: [sp.Family && sp.Family !== p.Family ? sp.Family : '', ended(m) ? (m.Status === 'Ended (death)' ? 'late' : 'separated') : ''].filter(Boolean).join(' · ') }) +
+      box(sp, { spouse: true, ended: ended(m), note: [sp.Family && sp.Family !== p.Family ? sp.Family : '', sp.Village && sp.Village !== p.Village ? sp.Village : '', ended(m) ? (m.Status === 'Ended (death)' ? 'late' : 'separated') : ''].filter(Boolean).join(' · ') }) +
       (parentRows(sp.ID).length ? '<button class="sp-act" title="Open ' + esc(sp.Name) + '’s birth family" onclick="App.openFamily(event,\'' + esc(sp.ID) + '\')">↗ family</button>'
         : (ctx.explore && can('contributor') ? '<button class="sp-act" onclick="App.openParents(\'' + esc(sp.ID) + '\', true, event)">+ parents</button>' : '')) + '</div>';
   });
@@ -678,23 +698,34 @@ function foldChain(fromId, first, ctx) {
 // collapsed branches: mark their people as placed so whole-village view does not redraw them as roots
 function markSeen(id, ctx) { if (ctx.seen.has(id)) return; ctx.seen.add(id); marriagesOf(id).forEach(m => ctx.doneM.add(m.ID)); (PRP[id] || []).forEach(r => markSeen(r.ChildID, ctx)); }
 
-function ancHtml(p, seen, depth, note) {
+function ancHtml(p, seen, depth, note, partner) {
   if (seen.has(p.ID)) return refLi(p, 'appears again');
   seen.add(p.ID);
   let inner = '';
-  if (depth < 25) parentRows(p.ID).forEach(r => { const tag = r.Type === 'Adopted' ? 'adoptive' : ''; [r.FatherID, r.MotherID].forEach(x => { if (P[x]) inner += ancHtml(P[x], seen, depth + 1, tag); }); });
-  return '<li' + (note ? ' class="adopted"' : '') + '><div class="couple">' + box(p, { main: true, adopted: !!note, note }) + '</div>' + (inner ? '<ul>' + inner + '</ul>' : '') + '</li>';
+  if (depth < 40) {
+    if (S.ancBoth) parentRows(p.ID).forEach(r => { const tag = r.Type === 'Adopted' ? 'adoptive' : ''; [r.FatherID, r.MotherID].forEach(x => { if (P[x]) inner += ancHtml(P[x], seen, depth + 1, tag); }); });
+    else {   // father's line: each generation is the father, with the mother shown inside his card
+      const r = socialParents(p.ID);
+      if (r && P[r.FatherID]) inner = ancHtml(P[r.FatherID], seen, depth + 1, r.Type === 'Adopted' ? 'adoptive' : '', P[r.MotherID]);
+      else if (r && P[r.MotherID]) inner = ancHtml(P[r.MotherID], seen, depth + 1, r.Type === 'Adopted' ? 'adoptive' : '');
+    }
+  }
+  const sp = partner ? '<div class="sp-row"><span class="heart">♥</span>' + box(partner, { spouse: true, note: partner.Family && partner.Family !== p.Family ? partner.Family : '' }) +
+    (parentRows(partner.ID).length ? '<button class="sp-act" onclick="App.openFamily(event,\'' + esc(partner.ID) + '\')">↗ family</button>' : '') + '</div>' : '';
+  return '<li' + (note ? ' class="adopted"' : '') + '><div class="couple' + (sp ? ' has-spouse' : '') + '">' + box(p, { main: true, adopted: !!note, note }) + sp + '</div>' + (inner ? '<ul>' + inner + '</ul>' : '') + '</li>';
 }
 
 function renderTree(recenter) {
   const fs = founders().map(p => ({ p, n: descCount(p.ID) })).sort((a, b) => b.n - a.n);
   let opts = '<option value="__all">🌐 Everyone (' + S.DB.people.length + ')</option>' +
-    fs.filter(f => f.n > 1).map(f => '<option value="' + esc(f.p.ID) + '">' + esc(f.p.Name + ' family (' + f.n + ')') + '</option>').join('');
+    fs.filter(f => f.n > 1).map(f => '<option value="' + esc(f.p.ID) + '">' + esc(famLabel(f, fs) + ' (' + f.n + ')' + (inLaw(f.p.ID, fs) ? ' · in-laws' : '')) + '</option>').join('');
   if (view.root !== '__all' && !P[view.root]) view.root = '__all';
   if (view.mode === 'anc' && !P[view.root]) view.mode = 'desc';
   if (view.root !== '__all' && !fs.some(f => f.p.ID === view.root && f.n > 1))
     opts += '<option value="' + esc(view.root) + '">' + esc((view.mode === 'anc' ? 'Ancestors of ' : 'From ') + P[view.root].Name) + '</option>';
   $('rootSel').innerHTML = opts; $('rootSel').value = view.root;
+  $('ancSides').hidden = view.mode !== 'anc';
+  $('ancMale').classList.toggle('on', !S.ancBoth); $('ancBoth').classList.toggle('on', !!S.ancBoth);
   $('mDesc').classList.toggle('on', view.mode === 'desc'); $('mExp').classList.toggle('on', view.mode === 'explore'); $('mAnc').classList.toggle('on', view.mode === 'anc');
   $('legend').textContent = view.mode === 'explore' ? 'Tap ▸ to open the next generation · + child to add someone right there · drag to move, pinch to zoom'
     : 'Drag to move · pinch or +/− to zoom · tap ▸ to open a branch · ♥1 ♥2 marriages · dashed = adopted · ↪ shown elsewhere';
@@ -707,11 +738,23 @@ function renderTree(recenter) {
     const all = view.root === '__all';
     const ctx = { seen: new Set(), doneM: new Set(), all, path: view.sel ? pathSet(view.sel) : new Set(), expandAll: S.expandAll, explore: view.mode === 'explore', rootId: all ? null : view.root };
     const roots = all ? fs.map(f => f.p) : [P[view.root]];
-    roots.forEach(r => { if (ctx.seen.has(r.ID)) return; const ms = marriagesOf(r.ID); if (all && ms.length && ms.every(m => ctx.doneM.has(m.ID))) return; html += descHtml(r, ctx); });
-    if (all) S.DB.people.slice().sort(byBirth).forEach(p => { if (ctx.seen.has(p.ID)) return; if (marriagesOf(p.ID).some(m => ctx.seen.has(spouseOf(m, p.ID).ID))) return; html += descHtml(p, ctx); });
+    const placed = new Set(), hidden = new Set();
+    roots.forEach(r => {
+      if (ctx.seen.has(r.ID)) return;
+      const ms = marriagesOf(r.ID); if (all && ms.length && ms.every(m => ctx.doneM.has(m.ID))) return;
+      if (all) {
+        const L = lineage(r.ID);
+        // a smaller family linked to one already drawn only by marriage = in-laws (e.g. a wife's parents): open it from ↗ family
+        if ([...L].some(x => marriagesOf(x).some(m => placed.has(spouseOf(m, x).ID)))) { L.forEach(x => hidden.add(x)); return; }
+        L.forEach(x => placed.add(x));
+      }
+      html += descHtml(r, ctx);
+    });
+    if (all) S.DB.people.slice().sort(byBirth).forEach(p => { if (ctx.seen.has(p.ID) || hidden.has(p.ID)) return; if (marriagesOf(p.ID).some(m => ctx.seen.has(spouseOf(m, p.ID).ID))) return; html += descHtml(p, ctx); });
     html = '<ul>' + html + '</ul>';
   }
   $('treeBox').innerHTML = html;
+  if (S.picked && S.picked.size) paintPicked();
   applyPan();
   requestAnimationFrame(() => {
     if (view.sel && nodeEl(view.sel)) { if (recenter) centerOn(view.sel, true); }
@@ -774,7 +817,84 @@ function markSel() {
   document.querySelectorAll('#treeBox .node.sel').forEach(e => e.classList.remove('sel'));
   document.querySelectorAll('#treeBox .node[data-id="' + CSS.escape(view.sel) + '"]').forEach(e => e.classList.add('sel'));
 }
-function tapNode(e, id) { if (moved) return; view.sel = id; markSel(); openProfile(id, true); }
+function tapNode(e, id) { if (moved) return; if (S.selectMode) return togglePick(id); view.sel = id; markSel(); openProfile(id, true); }
+
+// ============ Multi-select & bulk edit ============
+S.selectMode = false; S.picked = new Set();
+function toggleSelect() {
+  S.selectMode = !S.selectMode;
+  if (!S.selectMode) S.picked.clear();
+  $('selBtn').classList.toggle('on', S.selectMode);
+  $('treeWrap').classList.toggle('selecting', S.selectMode);
+  paintPicked(); updateSelBar();
+  if (S.selectMode) toast('Tap people to select them', 1800);
+}
+function togglePick(id) { S.picked.has(id) ? S.picked.delete(id) : S.picked.add(id); paintPicked(); updateSelBar(); }
+function clearPicked() { S.picked.clear(); paintPicked(); updateSelBar(); }
+function paintPicked() { document.querySelectorAll('#treeBox .node[data-id]').forEach(el => el.classList.toggle('picked', S.picked.has(el.dataset.id))); }
+function updateSelBar() {
+  $('selBar').hidden = !(S.selectMode && S.tab === 'tree');
+  const n = S.picked.size;
+  $('selCount').textContent = n ? n + ' selected' : 'Tap people to select';
+  $('selEdit').disabled = !n;
+  $('selEdit').textContent = n === 1 ? 'Quick edit' : n ? 'Edit ' + n : 'Edit';
+}
+const BULK_FIELDS = [['Name', 'Name'], ['Gender', 'Gender'], ['BirthYear', 'Birth'], ['DeathYear', 'Death'], ['Family', 'Family / Gotra'], ['Village', 'Village'], ['Phone', 'Mobile']];
+function openBulk() {
+  const ids = [...S.picked].filter(id => P[id]); if (!ids.length) return;
+  const direct = can('editor');
+  $('bulkTitle').textContent = ids.length === 1 ? (direct ? 'Quick edit' : 'Suggest a change') : (direct ? 'Edit ' : 'Suggest changes to ') + ids.length + ' people';
+  $('bulkNote').hidden = direct; $('bulkSave').textContent = direct ? 'Save' : 'Send for approval';
+  $('applyAll').hidden = ids.length < 2; $('allFamily').value = ''; $('allVillage').value = ''; $('allGender').value = '';
+  $('bulkRows').innerHTML = ids.map(id => {
+    const p = P[id], f = k => 'data-id="' + esc(id) + '" data-k="' + k + '" oninput="App.bulkDirty(this)"';
+    return '<div class="brow" id="br_' + esc(id) + '"><div class="who">' + esc(relOf(p) || 'In the tree') + '</div>' +
+      '<input ' + f('Name') + ' value="' + esc(p.Name) + '" placeholder="Name">' +
+      '<div class="row2"><select ' + f('Gender') + ' onchange="App.bulkDirty(this)"><option value="">—</option><option value="M"' + (p.Gender === 'M' ? ' selected' : '') + '>Male</option><option value="F"' + (p.Gender === 'F' ? ' selected' : '') + '>Female</option></select>' +
+      '<input ' + f('BirthYear') + ' inputmode="numeric" placeholder="Birth" value="' + esc(p.BirthYear) + '"><input ' + f('DeathYear') + ' inputmode="numeric" placeholder="Death" value="' + esc(p.DeathYear) + '"></div>' +
+      '<div class="row2"><input ' + f('Family') + ' placeholder="Family / Gotra" value="' + esc(p.Family) + '"><input ' + f('Village') + ' placeholder="Village" value="' + esc(p.Village) + '"></div>' +
+      '<div class="row2"><input ' + f('Phone') + ' type="tel" inputmode="tel" placeholder="Mobile" value="' + esc(p.Phone) + '"></div></div>';
+  }).join('');
+  $('bulkOv').classList.add('show');
+  if (ids.length === 1) setTimeout(() => $('bulkRows').querySelector('input').focus(), 60);
+}
+function closeBulk() { $('bulkOv').classList.remove('show'); }
+function bulkRead() {
+  const out = {};
+  $('bulkRows').querySelectorAll('[data-id]').forEach(el => { (out[el.dataset.id] = out[el.dataset.id] || {})[el.dataset.k] = el.value.trim(); });
+  return out;
+}
+function bulkDirty(el) {
+  const id = el.dataset.id, v = bulkRead()[id], p = P[id];
+  $('br_' + id).classList.toggle('changed', BULK_FIELDS.some(([k]) => String(v[k] ?? '') !== String(p[k] ?? '')));
+}
+function applyAll() {
+  const fam = $('allFamily').value.trim(), vil = $('allVillage').value.trim(), g = $('allGender').value;
+  if (!fam && !vil && !g) return toast('Type a family or village, or choose a gender to apply');
+  $('bulkRows').querySelectorAll('[data-k="Village"]').forEach(el => { if (vil) { el.value = vil; bulkDirty(el); } });
+  $('bulkRows').querySelectorAll('[data-k="Family"]').forEach(el => { if (fam) { el.value = fam; bulkDirty(el); } });
+  $('bulkRows').querySelectorAll('[data-k="Gender"]').forEach(el => { if (g) { el.value = g; bulkDirty(el); } });
+}
+async function saveBulk() {
+  const vals = bulkRead(), people = [];
+  for (const [id, v] of Object.entries(vals)) {
+    const p = P[id];
+    if (!BULK_FIELDS.some(([k]) => String(v[k] ?? '') !== String(p[k] ?? ''))) continue;
+    if (!v.Name) return toast('Name can’t be empty');
+    if (v.Phone && !/^\+?[0-9][0-9 ()-]{5,19}$/.test(v.Phone)) return toast('Check the mobile number for ' + v.Name, 3500);
+    people.push({ ...personFields(p), name: v.Name, gender: v.Gender || null, birth_year: v.BirthYear || null, death_year: v.DeathYear || null, family: v.Family || null, village: v.Village || null, phone: v.Phone || null });
+  }
+  if (!people.length) return toast('Nothing changed');
+  try {
+    if (can('editor')) {
+      const n = await busy('Saving…', () => api.savePeople(S.treeId, { people }));
+      closeBulk(); clearPicked(); await reload(); toast('Updated ' + n + (n === 1 ? ' person' : ' people'));
+    } else {
+      await busy('Sending…', () => api.submitRequest(S.treeId, 'save_people', { people }, 'Edit ' + people.length + ' ' + (people.length === 1 ? 'person' : 'people') + ': ' + people.map(x => x.name).slice(0, 4).join(', ') + (people.length > 4 ? '…' : '')));
+      closeBulk(); clearPicked(); toast('Sent for approval ✓', 3000);
+    }
+  } catch {}
+}
 function toggle(e, id, open) { e.stopPropagation(); if (moved) return; expandState[id] = open; S.expandAll = false; renderTree(false); }
 function expandAll(on) { expandState = {}; S.expandAll = on; renderTree(false); requestAnimationFrame(fit); }
 function focusNode(e, id) { if (e && moved) return; view.sel = id; if (nodeEl(id) && $('treeBox').querySelector('.node.main[data-id="' + CSS.escape(id) + '"]')) { markSel(); centerOn(id, true); return; } showInTree(id); }
@@ -789,12 +909,19 @@ function findInTree() { pick('Find in tree', null, id => { if (id) showInTree(id
 // ============ Requests inbox ============
 function personName(id) { return (P[id] && P[id].Name) || '(not in tree yet)'; }
 function describePayload(r) {
+  if (r.kind === 'save_people') {
+    const lbl = { name: 'Name', gender: 'Gender', birth_year: 'Birth', death_year: 'Death', family: 'Family', village: 'Village', phone: 'Mobile' }, ok = { name: 'Name', gender: 'Gender', birth_year: 'BirthYear', death_year: 'DeathYear', family: 'Family', village: 'Village', phone: 'Phone' };
+    return '<div class="diff">' + (r.payload.people || []).map(np => {
+      const old = P[np.id], ch = Object.keys(lbl).filter(k => String(np[k] ?? '') !== String(old ? old[ok[k]] ?? '' : ''));
+      return '<div><b>' + esc(old ? old.Name : np.name) + '</b>: ' + (ch.length ? ch.map(k => lbl[k] + ' ' + (old && old[ok[k]] ? '<span class="old">' + esc(old[ok[k]]) + '</span> → ' : '') + '<span class="new">' + esc(np[k] ?? '(empty)') + '</span>').join(', ') : '<span class="muted">no change</span>') + '</div>';
+    }).join('') + '</div>';
+  }
   if (r.kind === 'delete_person') {
     const p = P[r.payload.id];
     return '<div class="diff">Remove <b>' + esc(p ? label(p) : 'a person who is no longer in the tree') + '</b> and their links.</div>';
   }
   const pl = r.payload, np = pl.person || {}, old = np.id ? P[np.id] : null;
-  const fields = [['Name', 'name', 'Name'], ['Gender', 'gender', 'Gender'], ['Birth year', 'birth_year', 'BirthYear'], ['Death year', 'death_year', 'DeathYear'], ['Family', 'family', 'Family'], ['Mobile', 'phone', 'Phone'], ['Notes', 'notes', 'Notes']];
+  const fields = [['Name', 'name', 'Name'], ['Gender', 'gender', 'Gender'], ['Birth year', 'birth_year', 'BirthYear'], ['Death year', 'death_year', 'DeathYear'], ['Family', 'family', 'Family'], ['Village', 'village', 'Village'], ['Mobile', 'phone', 'Phone'], ['Notes', 'notes', 'Notes']];
   let h = '<div class="diff">';
   fields.forEach(([lbl, k, ok]) => {
     const nv = np[k] == null ? '' : String(np[k]), ov = old ? String(old[ok] ?? '') : '';
@@ -947,6 +1074,8 @@ window.App = {
   openParents: (id, fromTree, e) => { if (e) { e.stopPropagation(); if (moved) return; } openParents(id, fromTree); },
   closeParents, saveParents, parPick, parClear: k => { PA[k] = { id: '', name: '' }; renderParents(); }, parName: (k, v) => (PA[k].name = v),
   openFamily, goUp, toggleChain, treeMode: () => (view.mode === 'anc' ? savedMode() : view.mode),
+  setAncBoth: on => { S.ancBoth = on; store.set('ancBoth', on ? '1' : '0'); renderTree(true); },
+  toggleSelect, clearPicked, openBulk, closeBulk, bulkDirty, applyAll, saveBulk,
   review, cancelReq, loadHistory, share, invite, cancelInvite, setRole, removeMember, reviewAccess,
 };
 

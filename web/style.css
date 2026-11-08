@@ -59,6 +59,7 @@ form input + .btn { margin-top: 8px; }
 .seg { display: inline-flex; border-radius: 10px; box-shadow: inset 0 0 0 1px var(--accent); overflow: hidden; }
 .seg button { border: 0; background: #fff; color: var(--accent); font: inherit; font-size: 13px; font-weight: 600; padding: 7px 10px; cursor: pointer; }
 .seg button.on { background: var(--accent); color: #fff; }
+#ancSides button { font-size: 12px; padding: 6px 9px; }
 
 /* list items */
 .list .item { background: var(--card); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; display: flex; align-items: center; gap: 12px; cursor: pointer; box-shadow: var(--shadow); }
@@ -123,7 +124,7 @@ form input + .btn { margin-top: 8px; }
 .section { margin-bottom: 18px; }
 
 /* tree */
-.treewrap { position: relative; overflow: hidden; background: #fffdf9; border-radius: var(--r); box-shadow: var(--shadow); height: calc(100vh - 230px); min-height: 340px; touch-action: none; cursor: grab; }
+.treewrap { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; position: relative; overflow: hidden; background: #fffdf9; border-radius: var(--r); box-shadow: var(--shadow); height: calc(100vh - 230px); min-height: 340px; touch-action: none; cursor: grab; }
 .treewrap.dragging { cursor: grabbing; }
 .tree { position: absolute; left: 0; top: 0; transform-origin: 0 0; padding: 24px; will-change: transform; }
 .tree ul { padding-top: 22px; position: relative; display: flex; justify-content: center; margin: 0; padding-left: 0; }
@@ -157,6 +158,18 @@ form input + .btn { margin-top: 8px; }
 .node.ended { opacity: .6; }
 .node.adopt { border-style: dashed; border-color: #8a6d3b; }
 .node.sel { outline: 3px solid var(--sel); outline-offset: 2px; }
+.node.picked { outline: 3px solid #2e7d32; outline-offset: 2px; background: #e9f6ea !important; }
+.node.picked::before { content: '✓'; position: absolute; top: -9px; left: -7px; background: #2e7d32; color: #fff; border-radius: 50%; width: 18px; height: 18px; font-size: 11px; line-height: 18px; text-align: center; }
+.treewrap.selecting { box-shadow: inset 0 0 0 2px #2e7d32; }
+#selBtn.on { background: #2e7d32; color: #fff; box-shadow: none; }
+#selBar { position: fixed; left: 50%; transform: translateX(-50%); bottom: max(12px, env(safe-area-inset-bottom)); z-index: 15; display: flex; align-items: center; gap: 8px; background: #fff; border-radius: 14px; box-shadow: 0 4px 18px #0003; padding: 8px 8px 8px 14px; width: min(94vw, 520px); font-weight: 600; }
+.applyall { background: var(--soft); border-radius: 12px; padding: 10px; margin: 8px 0 12px; }
+.applyall .row2 { margin-top: 6px; align-items: center; }
+.applyall .btn { flex: 0 0 auto; }
+.brow { border: 1px solid var(--line); border-radius: 12px; padding: 10px; margin-bottom: 8px; }
+.brow .row2 { margin-top: 6px; }
+.brow .who { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.brow.changed { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
 .node.flash { animation: flash 1.1s ease 2; }
 @keyframes flash { 50% { box-shadow: 0 0 0 8px #e8a31766; } }
 .node small { color: var(--muted); font-size: 11px; }
