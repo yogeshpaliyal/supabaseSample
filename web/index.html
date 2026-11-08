@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#6b4226">
+<title>Vanshavali — Family Tree</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="boot" class="center-screen"><div class="spinner"></div></div>
+
+<!-- Sign in -->
+<section id="scrSignin" class="center-screen" hidden>
+  <div class="card narrow">
+    <div class="brand">🌳 <span>Vanshavali</span></div>
+    <p class="muted">Your village family tree. Sign in to view or add family members.</p>
+    <div id="joinHint" class="hint" hidden></div>
+    <button class="btn block google" onclick="App.signInGoogle()"><span class="g">G</span> Continue with Google</button>
+    <div class="or"><span>or</span></div>
+    <form onsubmit="event.preventDefault(); App.signInEmail()">
+      <input id="email" type="email" placeholder="Email address" autocomplete="email" required>
+      <button class="btn block ghost" type="submit">Email me a sign-in link</button>
+    </form>
+    <p id="signinMsg" class="muted small"></p>
+  </div>
+</section>
+
+<!-- Tree chooser / join -->
+<section id="scrTrees" class="page" hidden>
+  <header class="topbar"><div class="brand small">🌳 <span>Vanshavali</span></div><span class="spacer"></span><button class="icon-btn" onclick="App.signOut()" title="Sign out">⎋</button></header>
+  <main class="narrow-main">
+    <div id="joinBox"></div>
+    <h2>Your family trees</h2>
+    <div id="treeList"></div>
+    <details class="card subtle">
+      <summary>Start a new tree</summary>
+      <form class="row" onsubmit="event.preventDefault(); App.createTree()">
+        <input id="newTreeName" placeholder="Tree name, e.g. Paliyal" required>
+        <button class="btn">Create</button>
+      </form>
+    </details>
+  </main>
+</section>
+
+<!-- Main app -->
+<section id="scrApp" class="page" hidden>
+  <header class="topbar">
+    <button class="tree-name" onclick="App.goTrees()" title="Switch tree"><span id="treeTitle"></span> <span class="chev">▾</span></button>
+    <span id="roleBadge" class="badge"></span>
+    <span class="spacer"></span>
+    <button class="icon-btn" onclick="App.reload()" title="Refresh">⟳</button>
+  </header>
+  <nav class="tabs" id="tabs">
+    <button data-tab="people" class="on" onclick="App.tab('people')">People</button>
+    <button data-tab="tree" onclick="App.tab('tree')">Tree</button>
+    <button data-tab="inbox" id="tabInbox" onclick="App.tab('inbox')">Requests <b class="count" id="inboxCount" hidden></b></button>
+    <button data-tab="members" id="tabMembers" onclick="App.tab('members')">Members <b class="count" id="membersCount" hidden></b></button>
+  </nav>
+
+  <main id="pPeople" class="pane">
+    <div class="toolbar">
+      <input id="q" type="search" placeholder="Search name, family, father, notes…" oninput="App.renderList()">
+      <button class="btn" id="addBtn" onclick="App.openEdit('')">+ Add</button>
+    </div>
+    <div class="muted small" id="count"></div>
+    <div class="list" id="list"></div>
+  </main>
+
+  <main id="pTree" class="pane" hidden>
+    <div class="toolbar">
+      <select id="rootSel" onchange="App.navigate({mode:'desc', root:this.value})"></select>
+      <div class="seg"><button id="mDesc" onclick="App.setMode('desc')">Descendants</button><button id="mAnc" onclick="App.setMode('anc')">Ancestors</button></div>
+    </div>
+    <div class="toolbar">
+      <button class="btn sm" onclick="App.findInTree()">🔍 Find</button>
+      <button class="btn sm ghost" onclick="App.back()">← Back</button>
+      <button class="btn sm ghost" onclick="App.expandAll(true)">Expand all</button>
+      <button class="btn sm ghost" onclick="App.expandAll(false)">Collapse</button>
+      <span class="spacer"></span>
+      <button class="btn sm ghost" onclick="App.zoomBy(0.8)">−</button>
+      <button class="btn sm ghost" onclick="App.zoomBy(1.25)">+</button>
+      <button class="btn sm ghost" onclick="App.fit()" title="Fit to screen">⤢</button>
+    </div>
+    <div class="treewrap" id="treeWrap"><div class="tree" id="treeBox"></div></div>
+    <div class="legend">Drag to move · pinch or +/− to zoom · tap ▸ to open a branch · ♥1 ♥2 marriages · dashed = adopted · ↪ shown elsewhere</div>
+  </main>
+
+  <main id="pInbox" class="pane" hidden><div id="inbox"></div></main>
+  <main id="pMembers" class="pane" hidden><div id="members"></div></main>
+</section>
+
+<!-- Sheets -->
+<div class="overlay" id="profOv" onclick="if(event.target===this) App.closeProfile()"><div class="sheet" id="profBox"></div></div>
+
+<div class="overlay" id="editOv" onclick="if(event.target===this) App.closeEdit()">
+  <div class="sheet">
+    <h2 id="formTitle">Add person</h2>
+    <div id="formNote" class="hint" hidden></div>
+    <div class="field"><label>Name *</label><input id="f_Name"></div>
+    <div class="row2">
+      <div class="field"><label>Gender</label>
+        <select id="f_Gender"><option value="">—</option><option value="M">Male</option><option value="F">Female</option></select></div>
+      <div class="field"><label>Family / Gotra</label><input id="f_Family"></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Birth year</label><input id="f_BirthYear" inputmode="numeric"></div>
+      <div class="field"><label>Death year</label><input id="f_DeathYear" inputmode="numeric"></div>
+    </div>
+    <div class="field"><label>Notes</label><textarea id="f_Notes" rows="2"></textarea></div>
+    <h3>Parents</h3>
+    <div id="f_parents"></div>
+    <button class="btn sm ghost" onclick="App.addParentRow()">+ Add adoptive parents</button>
+    <h3>Marriages</h3>
+    <div id="f_marriages"></div>
+    <button class="btn sm ghost" onclick="App.addMarriageRow()">+ Add marriage</button>
+    <div class="actions">
+      <button class="btn danger" id="delBtn" onclick="App.del()">Delete</button>
+      <span class="spacer"></span>
+      <button class="btn ghost" onclick="App.closeEdit()">Cancel</button>
+      <button class="btn" id="saveBtn" onclick="App.save()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="pickOv" onclick="if(event.target===this) App.closePick()">
+  <div class="sheet">
+    <h2 id="pickTitle">Choose</h2>
+    <input id="pickQ" type="search" placeholder="Type to search…" oninput="App.renderPick()">
+    <div class="list plist" id="pickList"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
