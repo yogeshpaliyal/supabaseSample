@@ -237,7 +237,9 @@ function siblingsOf(id) {
     if (!P[par]) return;
     (PRP[par] || []).forEach(o => {
       if (o.ChildID === id) return;
-      const full = o.FatherID && o.MotherID && o.FatherID === r.FatherID && o.MotherID === r.MotherID;
+      // half-siblings only when a recorded parent differs; an unrecorded parent is not evidence of a different one
+      const differ = (a, b) => a && b && a !== b;
+      const full = !differ(o.FatherID, r.FatherID) && !differ(o.MotherID, r.MotherID);
       const cur = out[o.ChildID];
       out[o.ChildID] = { p: P[o.ChildID], kind: (cur && cur.kind === 'full') || full ? 'full' : 'half' };
     });
@@ -284,7 +286,7 @@ function profileHtml(p) {
       (other && can('contributor') ? ' <button class="btn sm ghost" onclick="App.addChild(\'' + e + '\',\'' + esc(k) + '\')">+ child</button>' : '') + '</div>';
     h += '<div class="chips">' + (groups[k].map(x => chip(x.c, [x.c.BirthYear, x.r.Type === 'Adopted' ? 'adopted' : ''].filter(Boolean).join(' · '))).join('') || '<span class="sub">—</span>') + '</div>';
   });
-  if (can('contributor')) h += '<div class="actions"><button class="btn sm ghost" onclick="App.addChild(\'' + e + '\',\'\')">+ Add child</button><button class="btn sm ghost" onclick="App.addSpouse(\'' + e + '\')">+ Add spouse</button></div>';
+  if (can('contributor')) h += '<div class="actions"><button class="btn sm ghost" onclick="App.addChild(\'' + e + '\',\'\')">+ Add child</button><button class="btn sm ghost" onclick="App.addSpouse(\'' + e + '\')">+ Add ' + (p.Gender === 'F' ? 'husband' : p.Gender === 'M' ? 'wife' : 'spouse') + '</button></div>';
 
   const sibs = siblingsOf(id);
   h += '<h3>Siblings</h3>' + (sibs.length ? '<div class="chips">' + sibs.map(s => chip(s.p, s.kind === 'half' ? 'half' : '')).join('') + '</div>' : '<div class="sub">None recorded</div>');
@@ -382,8 +384,21 @@ function renderRelRows() {
     '<div class="relrow"><div class="row2">' + pbtn(m.SpouseID, 'Spouse…', 'App.pickSpouse(' + i + ')') + '<button class="x" onclick="App.rmMarriage(' + i + ')">✕</button></div>' +
     '<div class="row2"><select onchange="App.setM(' + i + ',\'Status\',this.value)">' +
     ['Current', 'Ended (death)', 'Ended (separation)'].map(s => '<option' + (m.Status === s ? ' selected' : '') + '>' + s + '</option>').join('') +
-    '</select><input placeholder="Year" inputmode="numeric" value="' + esc(m.Year || '') + '" oninput="App.setM(' + i + ',\'Year\',this.value)"></div></div>').join('')
+    '</select><input placeholder="Year" inputmode="numeric" value="' + esc(m.Year || '') + '" oninput="App.setM(' + i + ',\'Year\',this.value)"></div>' + kidsChecklist(m, i) + '</div>').join('')
     : '<div class="sub" style="margin-bottom:8px">No marriages</div>';
+}
+function kidsChecklist(m, i) {
+  const sp = P[m.SpouseID]; if (!sp) return '';
+  const kids = spouseKids(m.SpouseID); if (!kids.length) return '';
+  const wife = selfIsWife(m.SpouseID), sel = new Set(m.LinkKids || []);
+  return '<div class="kids"><div class="sub">' + esc(sp.Name) + '’s children — tick the ones who are also ' + (wife ? 'her' : 'his') + ' children</div>' +
+    kids.map(k => k.state === 'other'
+      ? '<label class="kid off"><input type="checkbox" disabled> ' + esc(k.p.Name) + ' <span class="tagline">' + (wife ? 'mother' : 'father') + ': ' + esc(k.otherName) + '</span></label>'
+      : '<label class="kid"><input type="checkbox"' + (k.state === 'already' ? ' checked disabled' : (sel.has(k.id) ? ' checked' : '')) +
+        ' onchange="App.toggleKid(' + i + ',\'' + esc(k.id) + '\',this.checked)"> ' + esc(k.p.Name) + (k.p.BirthYear ? ' <span class="tagline">' + esc(k.p.BirthYear) + '</span>' : '') +
+        (k.state === 'already' ? ' <span class="tagline">already linked</span>' : '') + '</label>').join('') +
+    (kids.some(k => k.state === 'free') ? '<div class="actions" style="margin-top:4px"><button class="btn sm ghost" onclick="App.allKids(' + i + ',true)">Select all</button><button class="btn sm ghost" onclick="App.allKids(' + i + ',false)">None</button></div>' : '') +
+    '</div>';
 }
 function pickParent(i, key) {
   readForm();
@@ -391,7 +406,24 @@ function pickParent(i, key) {
   pick(key === 'FatherID' ? 'Choose father' : 'Choose mother', p => p.ID !== self && (key === 'FatherID' ? p.Gender !== 'F' : p.Gender !== 'M'),
     id => { F.parents[i][key] = id; renderRelRows(); }, true);
 }
-function pickSpouse(i) { readForm(); const self = F.person.ID; pick('Choose spouse', p => p.ID !== self, id => { F.marriages[i].SpouseID = id; renderRelRows(); }, true); }
+function selfIsWife(spouseId) {
+  const g = $('f_Gender').value, sp = P[spouseId];
+  return g === 'F' || (g !== 'M' && sp && sp.Gender === 'M');
+}
+// children of the spouse that have no other parent yet (or already have this person)
+function spouseKids(spouseId) {
+  const wife = selfIsWife(spouseId), self = F.person.ID, out = [];
+  (PRP[spouseId] || []).forEach(r => {
+    const mine = wife ? r.FatherID === spouseId : r.MotherID === spouseId;
+    if (!mine) return;
+    const other = wife ? r.MotherID : r.FatherID;
+    if (out.some(x => x.id === r.ChildID)) return;
+    out.push({ id: r.ChildID, p: P[r.ChildID], state: !other ? 'free' : other === self && self ? 'already' : 'other', otherName: other && P[other] ? P[other].Name : '' });
+  });
+  return out.sort((a, b) => byBirth(a.p, b.p));
+}
+const freeKids = spouseId => spouseKids(spouseId).filter(k => k.state === 'free').map(k => k.id);
+function pickSpouse(i) { readForm(); const self = F.person.ID; pick('Choose spouse', p => p.ID !== self, id => { F.marriages[i].SpouseID = id; F.marriages[i].LinkKids = id ? freeKids(id) : []; renderRelRows(); }, true); }
 
 function payloadFromForm() {
   const p = F.person;
@@ -399,6 +431,8 @@ function payloadFromForm() {
     person: { id: p.ID || null, name: p.Name, gender: p.Gender || null, birth_year: p.BirthYear || null, death_year: p.DeathYear || null, family: p.Family || null, notes: p.Notes || null, phone: p.Phone || null },
     parents: F.parents.filter(r => r.FatherID || r.MotherID).map(r => ({ father_id: r.FatherID || null, mother_id: r.MotherID || null, type: r.Type })),
     marriages: F.marriages.filter(m => m.SpouseID).map(m => ({ spouse_id: m.SpouseID, status: m.Status, year: m.Year || null, notes: m.Notes || null })),
+    ...(F.marriages.some(m => m.SpouseID && (m.LinkKids || []).length)
+      ? { link_children: F.marriages.filter(m => m.SpouseID && (m.LinkKids || []).length).map(m => ({ spouse_id: m.SpouseID, child_ids: m.LinkKids })) } : {}),
   };
 }
 function summarize(pl) {
@@ -406,7 +440,8 @@ function summarize(pl) {
   if (pl.person.id) return 'Edit ' + (P[pl.person.id] ? P[pl.person.id].Name : n);
   if (f) return 'Add ' + n + ' (child of ' + f.Name + ')';
   const sp = pl.marriages[0] && P[pl.marriages[0].spouse_id];
-  return 'Add ' + n + (sp ? ' (spouse of ' + sp.Name + ')' : '');
+  const rel = pl.person.gender === 'F' ? 'wife' : pl.person.gender === 'M' ? 'husband' : 'spouse';
+  return 'Add ' + n + (sp ? ' (' + rel + ' of ' + sp.Name + ')' : '');
 }
 async function save() {
   readForm();
@@ -452,7 +487,12 @@ function addChildFromTree(e, id) {
   expandState[id] = true; S.addFromTree = true;
   addChild(id, '');
 }
-function addSpouse(id) { const p = P[id]; openEdit('', { person: { Gender: p.Gender === 'M' ? 'F' : p.Gender === 'F' ? 'M' : '' }, marriages: [{ SpouseID: id, Status: 'Current', Year: '' }] }); }
+function addSpouse(id) {
+  const p = P[id], g = p.Gender === 'M' ? 'F' : p.Gender === 'F' ? 'M' : '';
+  openEdit('', { person: { Gender: g }, marriages: [{ SpouseID: id, Status: 'Current', Year: '' }] });
+  F.marriages[0].LinkKids = freeKids(id); renderRelRows();      // default: all of their children without a mother/father yet
+}
+function addSpouseFromTree(e, id) { e.stopPropagation(); if (moved) return; S.addFromTree = true; addSpouse(id); }
 
 // ============ Tree ============
 function navigate(v) { hist.push(Object.assign({}, view)); if (hist.length > 50) hist.shift(); view = Object.assign({}, view, v); renderTree(true); }
@@ -540,7 +580,8 @@ function descHtml(p, ctx, tag = {}, bdepth = 0) {
       (open ? '▾' : '▸ ' + (descCount(p.ID) - 1) + (ctx.explore ? '' : ' more')) + '</button>';
   }
   if (ctx.explore && can('contributor'))
-    toggle += '<button class="addkid" title="' + (can('editor') ? 'Add a child' : 'Suggest a child') + '" onclick="App.addChildFromTree(event,\'' + esc(p.ID) + '\')">+ child</button>';
+    toggle += '<button class="addkid" title="' + (can('editor') ? 'Add a child' : 'Suggest a child') + '" onclick="App.addChildFromTree(event,\'' + esc(p.ID) + '\')">+ child</button>' +
+      '<button class="addkid alt" onclick="App.addSpouseFromTree(event,\'' + esc(p.ID) + '\')">+ ' + (p.Gender === 'F' ? 'husband' : p.Gender === 'M' ? 'wife' : 'spouse') + '</button>';
   if (toggle) toggle = '<div class="node-actions">' + toggle + '</div>';
   return '<li' + (tag.adopted ? ' class="adopted"' : '') + '><div class="couple' + (ms.length ? ' has-spouse' : '') + '">' + head + '</div>' + toggle + (inner ? '<ul>' + inner + '</ul>' : '') + '</li>';
 }
@@ -677,6 +718,7 @@ function describePayload(r) {
   const mar = (pl.marriages || []).map(m => personName(m.spouse_id) + (m.status && m.status !== 'Current' ? ' (' + m.status + ')' : '')).join(', ');
   const oldMar = old ? marriagesOf(old.ID).map(m => spouseOf(m, old.ID).Name + (ended(m) ? ' (' + m.Status + ')' : '')).join(', ') : '';
   if (mar !== oldMar && (mar || oldMar)) h += '<div>Spouse: ' + (oldMar ? '<span class="old">' + esc(oldMar) + '</span> → ' : '') + '<span class="new">' + esc(mar || 'none') + '</span></div>';
+  (pl.link_children || []).forEach(lc => { if ((lc.child_ids || []).length) h += '<div>Also ' + (np.gender === 'F' ? 'mother' : np.gender === 'M' ? 'father' : 'parent') + ' of: <span class="new">' + esc(lc.child_ids.map(personName).join(', ')) + '</span> <span class="muted">(children of ' + esc(personName(lc.spouse_id)) + ')</span></div>'; });
   if (h === '<div class="diff">') h += '<div class="muted">No visible changes.</div>';
   return h + '</div>';
 }
@@ -799,15 +841,18 @@ window.App = {
   openTreeId: id => openTree(S.trees.find(t => t.id === id)), reload, tab,
   renderList, openProfile, profBack, closeProfile, relateFrom,
   pickDone, closePick, renderPick,
-  openEdit, closeEdit, save, del, addChild, addChildFromTree, addSpouse, pickParent, pickSpouse,
+  openEdit, closeEdit, save, del, addChild, addChildFromTree, addSpouse, addSpouseFromTree, pickParent, pickSpouse,
   addParentRow: () => { readForm(); F.parents.push({ FatherID: '', MotherID: '', Type: 'Adopted' }); renderRelRows(); },
   addMarriageRow: () => { readForm(); F.marriages.push({ SpouseID: '', Status: 'Current', Year: '' }); renderRelRows(); },
   rmParent: i => { readForm(); F.parents.splice(i, 1); renderRelRows(); },
   rmMarriage: i => { readForm(); F.marriages.splice(i, 1); renderRelRows(); },
   setM: (i, k, v) => (F.marriages[i][k] = v),
+  toggleKid: (i, id, on) => { const s = new Set(F.marriages[i].LinkKids || []); on ? s.add(id) : s.delete(id); F.marriages[i].LinkKids = [...s]; },
+  allKids: (i, on) => { readForm(); F.marriages[i].LinkKids = on ? freeKids(F.marriages[i].SpouseID) : []; renderRelRows(); },
   navigate, back, setMode, zoomBy, fit, expandAll, toggle, tapNode, focusNode, showInTree, findInTree,
   review, cancelReq, loadHistory, share, invite, cancelInvite, setRole, removeMember, reviewAccess,
 };
 
 setupPan();
+$('f_Gender').addEventListener('change', () => { if (F) { readForm(); renderRelRows(); } });
 boot().catch(fail);
