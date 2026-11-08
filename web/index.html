@@ -72,7 +72,7 @@
   <main id="pTree" class="pane" hidden>
     <div class="toolbar">
       <select id="rootSel" onchange="App.navigate({mode:'desc', root:this.value})"></select>
-      <div class="seg"><button id="mDesc" onclick="App.setMode('desc')">Descendants</button><button id="mAnc" onclick="App.setMode('anc')">Ancestors</button></div>
+      <div class="seg"><button id="mDesc" onclick="App.setMode('desc')">Full tree</button><button id="mExp" onclick="App.setMode('explore')">Explore</button><button id="mAnc" onclick="App.setMode('anc')">Ancestors</button></div>
     </div>
     <div class="toolbar">
       <button class="btn sm" onclick="App.findInTree()">🔍 Find</button>
@@ -85,7 +85,7 @@
       <button class="btn sm ghost" onclick="App.fit()" title="Fit to screen">⤢</button>
     </div>
     <div class="treewrap" id="treeWrap"><div class="tree" id="treeBox"></div></div>
-    <div class="legend">Drag to move · pinch or +/− to zoom · tap ▸ to open a branch · ♥1 ♥2 marriages · dashed = adopted · ↪ shown elsewhere</div>
+    <div class="legend" id="legend">Drag to move · pinch or +/− to zoom · tap ▸ to open a branch · ♥1 ♥2 marriages · dashed = adopted · ↪ shown elsewhere</div>
   </main>
 
   <main id="pInbox" class="pane" hidden><div id="inbox"></div></main>

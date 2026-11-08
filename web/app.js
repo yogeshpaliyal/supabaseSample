@@ -10,6 +10,7 @@ const S = {
 };
 let P = {}, MBY = {}, PRC = {}, PRP = {}, ADJ = null;
 let view = { mode: 'desc', root: '__all', sel: '' }, hist = [];
+const savedMode = () => (['desc', 'explore'].includes(store.get('treeMode')) ? store.get('treeMode') : 'desc');
 let profHist = [], F = null, delArmed = false, PK = null;
 let expandState = {};                       // id -> true/false (user toggled)
 const pan = { x: 0, y: 0, s: 0.85 };
@@ -138,7 +139,7 @@ async function openTree(t) {
   if (!t) return showTrees();
   S.treeId = t.id; S.treeName = t.name; S.role = t.role;
   store.set('lastTree', t.id); setUrlTree(t.id);
-  view = { mode: 'desc', root: '__all', sel: '' }; hist = []; expandState = {};
+  view = { mode: savedMode(), root: '__all', sel: '' }; hist = []; expandState = {};
   $('treeTitle').textContent = t.name;
   $('roleBadge').textContent = t.role;
   $('tabMembers').hidden = !can('owner');
@@ -336,6 +337,7 @@ function relateFrom(a) {
 // ============ Edit form ============
 function openEdit(id, preset) {
   if (!can('contributor')) return;
+  if (!preset) S.addFromTree = false;
   const p = P[id];
   F = {
     person: Object.assign({ ID: '', Name: '', Gender: '', BirthYear: '', DeathYear: '', Family: '', Notes: '' }, p || (preset && preset.person) || {}),
@@ -356,7 +358,7 @@ function openEdit(id, preset) {
   $('editOv').classList.add('show');
   if (!p) setTimeout(() => $('f_Name').focus(), 60);
 }
-function closeEdit() { $('editOv').classList.remove('show'); }
+function closeEdit() { $('editOv').classList.remove('show'); S.addFromTree = false; }
 function pbtn(val, ph, onclick) { const p = P[val]; return '<button class="pickbtn' + (p ? '' : ' emptyv') + '" onclick="' + onclick + '">' + esc(p ? label(p) : ph) + '</button>'; }
 function readForm() { ['Name', 'Gender', 'BirthYear', 'DeathYear', 'Family', 'Notes'].forEach(k => (F.person[k] = $('f_' + k).value.trim())); }
 function renderRelRows() {
@@ -402,8 +404,9 @@ async function save() {
   try {
     if (can('editor')) {
       const id = await busy('Saving…', () => api.savePerson(S.treeId, pl));
-      closeEdit(); await reload(); toast('Saved');
-      openProfile(id, !$('profOv').classList.contains('show'));
+      const fromTree = S.addFromTree; closeEdit();
+      if (fromTree && S.tab === 'tree') { view.sel = id; await reload(); renderTree(false); requestAnimationFrame(() => centerOn(id, true)); toast('Added ' + pl.person.name); }
+      else { await reload(); toast('Saved'); openProfile(id, !$('profOv').classList.contains('show')); }
     } else {
       await busy('Sending…', () => api.submitRequest(S.treeId, 'save_person', pl, summarize(pl)));
       closeEdit(); toast('Sent for approval ✓', 3000);
@@ -432,6 +435,11 @@ function addChild(id, otherId) {
   const fam = (p.Gender === 'F' && o) ? o.Family : p.Family;
   openEdit('', { person: { Family: fam }, parents: [row] });
 }
+function addChildFromTree(e, id) {
+  e.stopPropagation(); if (moved) return;
+  expandState[id] = true; S.addFromTree = true;
+  addChild(id, '');
+}
 function addSpouse(id) { const p = P[id]; openEdit('', { person: { Gender: p.Gender === 'M' ? 'F' : p.Gender === 'F' ? 'M' : '' }, marriages: [{ SpouseID: id, Status: 'Current', Year: '' }] }); }
 
 // ============ Tree ============
@@ -442,7 +450,11 @@ function setMode(m) {
     const target = view.sel || (view.root !== '__all' ? view.root : '');
     if (!P[target]) return toast('Pick a person first — tap a card or use Find');
     navigate({ mode: 'anc', root: target, sel: target });
-  } else navigate({ mode: 'desc', root: view.mode === 'anc' ? topAncestor(view.root) : view.root });
+  } else {
+    store.set('treeMode', m);
+    if (m === 'explore' && view.mode !== 'explore') { expandState = {}; S.expandAll = false; }
+    navigate({ mode: m, root: view.mode === 'anc' ? topAncestor(view.root) : view.root });
+  }
 }
 function topAncestor(id) {
   const seen = new Set(); let cur = id;
@@ -466,6 +478,7 @@ const DEFAULT_BRANCH_DEPTH = 3;
 function isOpen(id, bdepth, ctx) {
   if (id in expandState) return expandState[id];
   if (ctx.expandAll) return true;
+  if (ctx.explore) return ctx.path.has(id) && id !== view.sel;
   return bdepth < DEFAULT_BRANCH_DEPTH || ctx.path.has(id);
 }
 
@@ -507,8 +520,11 @@ function descHtml(p, ctx, tag = {}, bdepth = 0) {
     if (open) inner = kids.map(k => k.ref ? refLi(k.ref, k.note) : descHtml(k.c, ctx, k.tag, childDepth)).join('') + [...refs].map(s => refLi(P[s], 'children shown under ' + P[s].Name)).join('');
     else kids.forEach(k => k.c && markSeen(k.c.ID, ctx));
     toggle = '<button class="toggle" title="' + (open ? 'Hide this branch' : 'Show this branch') + '" onclick="App.toggle(event,\'' + esc(p.ID) + '\',' + (open ? 'false' : 'true') + ')">' +
-      (open ? '▾' : '▸ ' + (descCount(p.ID) - 1) + ' more') + '</button>';
+      (open ? '▾' : '▸ ' + (descCount(p.ID) - 1) + (ctx.explore ? '' : ' more')) + '</button>';
   }
+  if (ctx.explore && can('contributor'))
+    toggle += '<button class="addkid" title="' + (can('editor') ? 'Add a child' : 'Suggest a child') + '" onclick="App.addChildFromTree(event,\'' + esc(p.ID) + '\')">+ child</button>';
+  if (toggle) toggle = '<div class="node-actions">' + toggle + '</div>';
   return '<li' + (tag.adopted ? ' class="adopted"' : '') + '><div class="couple">' + head + '</div>' + toggle + (inner ? '<ul>' + inner + '</ul>' : '') + '</li>';
 }
 // collapsed branches: mark their people as placed so whole-village view does not redraw them as roots
@@ -531,7 +547,9 @@ function renderTree(recenter) {
   if (view.root !== '__all' && !fs.some(f => f.p.ID === view.root && f.n > 1))
     opts += '<option value="' + esc(view.root) + '">' + esc((view.mode === 'anc' ? 'Ancestors of ' : 'From ') + P[view.root].Name) + '</option>';
   $('rootSel').innerHTML = opts; $('rootSel').value = view.root;
-  $('mDesc').classList.toggle('on', view.mode === 'desc'); $('mAnc').classList.toggle('on', view.mode === 'anc');
+  $('mDesc').classList.toggle('on', view.mode === 'desc'); $('mExp').classList.toggle('on', view.mode === 'explore'); $('mAnc').classList.toggle('on', view.mode === 'anc');
+  $('legend').textContent = view.mode === 'explore' ? 'Tap ▸ to open the next generation · + child to add someone right there · drag to move, pinch to zoom'
+    : 'Drag to move · pinch or +/− to zoom · tap ▸ to open a branch · ♥1 ♥2 marriages · dashed = adopted · ↪ shown elsewhere';
   if ($('pTree').hidden) return;
 
   let html = '';
@@ -539,7 +557,7 @@ function renderTree(recenter) {
   else if (view.mode === 'anc') html = '<ul>' + ancHtml(P[view.root], new Set(), 0, '') + '</ul>';
   else {
     const all = view.root === '__all';
-    const ctx = { seen: new Set(), doneM: new Set(), all, path: view.sel ? pathSet(view.sel) : new Set(), expandAll: S.expandAll };
+    const ctx = { seen: new Set(), doneM: new Set(), all, path: view.sel ? pathSet(view.sel) : new Set(), expandAll: S.expandAll, explore: view.mode === 'explore' };
     const roots = all ? fs.map(f => f.p) : [P[view.root]];
     roots.forEach(r => { if (ctx.seen.has(r.ID)) return; const ms = marriagesOf(r.ID); if (all && ms.length && ms.every(m => ctx.doneM.has(m.ID))) return; html += descHtml(r, ctx); });
     if (all) S.DB.people.slice().sort(byBirth).forEach(p => { if (ctx.seen.has(p.ID)) return; if (marriagesOf(p.ID).some(m => ctx.seen.has(spouseOf(m, p.ID).ID))) return; html += descHtml(p, ctx); });
@@ -614,8 +632,9 @@ function expandAll(on) { expandState = {}; S.expandAll = on; renderTree(false); 
 function focusNode(e, id) { if (e && moved) return; view.sel = id; if (nodeEl(id) && $('treeBox').querySelector('.node.main[data-id="' + CSS.escape(id) + '"]')) { markSel(); centerOn(id, true); return; } showInTree(id); }
 function showInTree(id) {
   closeProfile(); tab('tree');
-  if (view.mode === 'desc' && $('treeBox').querySelector('.node.main[data-id="' + CSS.escape(id) + '"]')) { view.sel = id; markSel(); centerOn(id, true); return; }
-  navigate({ mode: 'desc', root: '__all', sel: id });
+  const m = view.mode === 'anc' ? savedMode() : view.mode;
+  if (view.mode !== 'anc' && $('treeBox').querySelector('.node.main[data-id="' + CSS.escape(id) + '"]')) { view.sel = id; markSel(); centerOn(id, true); return; }
+  navigate({ mode: m, root: '__all', sel: id });
 }
 function findInTree() { pick('Find in tree', null, id => { if (id) showInTree(id); }); }
 
@@ -763,7 +782,7 @@ window.App = {
   openTreeId: id => openTree(S.trees.find(t => t.id === id)), reload, tab,
   renderList, openProfile, profBack, closeProfile, relateFrom,
   pickDone, closePick, renderPick,
-  openEdit, closeEdit, save, del, addChild, addSpouse, pickParent, pickSpouse,
+  openEdit, closeEdit, save, del, addChild, addChildFromTree, addSpouse, pickParent, pickSpouse,
   addParentRow: () => { readForm(); F.parents.push({ FatherID: '', MotherID: '', Type: 'Adopted' }); renderRelRows(); },
   addMarriageRow: () => { readForm(); F.marriages.push({ SpouseID: '', Status: 'Current', Year: '' }); renderRelRows(); },
   rmParent: i => { readForm(); F.parents.splice(i, 1); renderRelRows(); },
