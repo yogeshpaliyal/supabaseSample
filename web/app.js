@@ -483,7 +483,7 @@ function isOpen(id, bdepth, ctx) {
 }
 
 function box(p, o = {}) {
-  const cls = ['node', p.Gender, o.main ? 'main' : '', o.ended ? 'ended' : '', o.adopted ? 'adopt' : '', view.sel === p.ID ? 'sel' : ''].filter(Boolean).join(' ');
+  const cls = ['node', p.Gender, o.main ? 'main' : '', o.spouse ? 'sp' : '', o.ended ? 'ended' : '', o.adopted ? 'adopt' : '', view.sel === p.ID ? 'sel' : ''].filter(Boolean).join(' ');
   return '<div class="' + cls + '" data-id="' + esc(p.ID) + '" onclick="App.tapNode(event,\'' + esc(p.ID) + '\')">' +
     (o.badge ? '<span class="badge2">' + o.badge + '</span>' : '') + '<span class="nm">' + esc(p.Name) + '</span>' +
     ((years(p) || o.note) ? '<small>' + esc([years(p), o.note].filter(Boolean).join(' · ')) + '</small>' : '') + '</div>';
@@ -494,8 +494,13 @@ function descHtml(p, ctx, tag = {}, bdepth = 0) {
   if (ctx.seen.has(p.ID)) return refLi(p, 'shown elsewhere');
   ctx.seen.add(p.ID);
   const ms = marriagesOf(p.ID), multi = ms.length > 1;
+  // couple card: the family member on top, spouse(s) inside the same card underneath
   let head = box(p, { main: true, badge: tag.badge, adopted: tag.adopted, note: tag.adopted ? 'adopted' : '' });
-  ms.forEach((m, i) => { head += '<span class="heart' + (ended(m) ? ' ended' : '') + '">♥' + (multi ? i + 1 : '') + '</span>' + box(spouseOf(m, p.ID), { ended: ended(m) }); });
+  ms.forEach((m, i) => {
+    const sp = spouseOf(m, p.ID);
+    head += '<div class="sp-row' + (ended(m) ? ' ended' : '') + '" title="' + esc(ended(m) ? m.Status : 'Spouse') + '"><span class="heart' + (ended(m) ? ' ended' : '') + '">♥' + (multi ? i + 1 : '') + '</span>' +
+      box(sp, { spouse: true, ended: ended(m), note: [sp.Family && sp.Family !== p.Family ? sp.Family : '', ended(m) ? (m.Status === 'Ended (death)' ? 'late' : 'separated') : ''].filter(Boolean).join(' · ') }) + '</div>';
+  });
   const idx = {}; ms.forEach((m, i) => (idx[spouseOf(m, p.ID).ID] = { m, i }));
   const deferred = new Set();
   if (ctx.all && p.Gender === 'F') ms.forEach(m => { if (m.HusbandID !== p.ID && !ctx.seen.has(m.HusbandID)) deferred.add(m.ID); });
@@ -525,7 +530,7 @@ function descHtml(p, ctx, tag = {}, bdepth = 0) {
   if (ctx.explore && can('contributor'))
     toggle += '<button class="addkid" title="' + (can('editor') ? 'Add a child' : 'Suggest a child') + '" onclick="App.addChildFromTree(event,\'' + esc(p.ID) + '\')">+ child</button>';
   if (toggle) toggle = '<div class="node-actions">' + toggle + '</div>';
-  return '<li' + (tag.adopted ? ' class="adopted"' : '') + '><div class="couple">' + head + '</div>' + toggle + (inner ? '<ul>' + inner + '</ul>' : '') + '</li>';
+  return '<li' + (tag.adopted ? ' class="adopted"' : '') + '><div class="couple' + (ms.length ? ' has-spouse' : '') + '">' + head + '</div>' + toggle + (inner ? '<ul>' + inner + '</ul>' : '') + '</li>';
 }
 // collapsed branches: mark their people as placed so whole-village view does not redraw them as roots
 function markSeen(id, ctx) { if (ctx.seen.has(id)) return; ctx.seen.add(id); marriagesOf(id).forEach(m => ctx.doneM.add(m.ID)); (PRP[id] || []).forEach(r => markSeen(r.ChildID, ctx)); }
