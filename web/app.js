@@ -259,14 +259,17 @@ function profileHtml(p) {
     '<a class="btn sm wa" href="https://wa.me/' + esc(waNumber(p.Phone)) + '" target="_blank" rel="noopener">WhatsApp</a></div>';
   if (p.Notes) h += '<p style="margin:10px 0 0">' + esc(p.Notes) + '</p>';
   h += '<div class="actions"><button class="btn sm" onclick="App.showInTree(\'' + e + '\')">🌳 Show in tree</button>' +
-    '<button class="btn sm ghost" onclick="App.closeProfile(); App.navigate({mode:\'desc\', root:\'' + e + '\', sel:\'' + e + '\'}); App.tab(\'tree\')">Descendants</button>' +
+    '<button class="btn sm ghost" onclick="App.closeProfile(); App.navigate({mode: App.treeMode(), root:\'' + e + '\', sel:\'' + e + '\'}); App.tab(\'tree\')">Tree from here</button>' +
     '<button class="btn sm ghost" onclick="App.closeProfile(); App.navigate({mode:\'anc\', root:\'' + e + '\', sel:\'' + e + '\'}); App.tab(\'tree\')">Ancestors</button>' +
     (can('contributor') ? '<button class="btn sm ghost" onclick="App.openEdit(\'' + e + '\')">' + editLbl + '</button>' : '') + '</div>';
 
-  const rows = parentRows(id);
+  const rows = parentRows(id), br = bioRow(id), missing = !br || !P[br.FatherID] || !P[br.MotherID];
   h += '<h3>Parents</h3>' + (rows.length ? rows.map(r => '<div>' + (r.Type === 'Adopted' ? '<b>Adoptive:</b> ' : '') +
     [P[r.FatherID] ? 'Father ' + nameLink(P[r.FatherID]) : '', P[r.MotherID] ? 'Mother ' + nameLink(P[r.MotherID]) : ''].filter(Boolean).join(' · ') + '</div>').join('')
-    : '<div class="sub">Not recorded</div>');
+    : '<div class="sub">Not recorded</div>') +
+    ((missing && can('contributor')) || (rows.length && marriagesOf(id).length) ? '<div class="actions" style="margin-top:6px">' +
+      (missing && can('contributor') ? '<button class="btn sm ghost" onclick="App.openParents(\'' + e + '\')">+ ' + (!br ? 'Add parents' : !P[br.FatherID] ? 'Add father' : 'Add mother') + '</button>' : '') +
+      (rows.length && marriagesOf(id).length ? '<button class="btn sm ghost" onclick="App.openFamily(null,\'' + e + '\')">🌳 ' + (p.Gender === 'F' ? 'Her' : p.Gender === 'M' ? 'His' : 'Their') + ' birth family</button>' : '') + '</div>' : '');
 
   const ms = marriagesOf(id);
   h += '<h3>Marriages</h3>' + (ms.length ? ms.map((m, i) => '<div>' + (ms.length > 1 ? (i + 1) + '. ' : '') + nameLink(spouseOf(m, id)) +
@@ -494,6 +497,69 @@ function addSpouse(id) {
 }
 function addSpouseFromTree(e, id) { e.stopPropagation(); if (moved) return; S.addFromTree = true; addSpouse(id); }
 
+// ============ Add parents (e.g. a wife's father & mother) ============
+let PA = null;
+const personFields = p => ({ id: p.ID, name: p.Name, gender: p.Gender || null, birth_year: p.BirthYear || null, death_year: p.DeathYear || null, family: p.Family || null, notes: p.Notes || null, phone: p.Phone || null });
+function bioRow(id) { return parentRows(id).find(r => r.Type !== 'Adopted'); }
+function openParents(id, fromTree) {
+  if (!can('contributor')) return;
+  const p = P[id], r = bioRow(id);
+  PA = { id, fromTree: !!fromTree, hasF: r && P[r.FatherID] ? r.FatherID : '', hasM: r && P[r.MotherID] ? r.MotherID : '', f: { id: '', name: '' }, m: { id: '', name: '' } };
+  $('parTitle').textContent = (can('editor') ? 'Add parents of ' : 'Suggest parents of ') + p.Name;
+  $('parNote').hidden = can('editor'); $('parNote').textContent = 'Your suggestion will be sent to the tree editors for approval.';
+  $('parSave').textContent = can('editor') ? 'Save' : 'Send for approval';
+  $('parFamily').value = p.Family || '';
+  renderParents();
+  $('parOv').classList.add('show');
+}
+function slotHtml(key, label) {
+  const has = key === 'f' ? PA.hasF : PA.hasM, v = PA[key];
+  if (has) return '<div class="pslot"><div class="chosen">' + esc(P[has].Name) + ' <span class="tagline">already recorded</span></div></div>';
+  if (v.id) return '<div class="pslot"><div class="chosen">' + esc(label(P[v.id])) + '</div><button class="x" onclick="App.parClear(\'' + key + '\')">✕</button></div>';
+  return '<div class="pslot"><input id="par_' + key + '" placeholder="' + (key === 'f' ? 'Father’s name' : 'Mother’s name') + '" value="' + esc(v.name) + '" oninput="App.parName(\'' + key + '\', this.value)"></div>' +
+    '<button class="btn sm ghost" style="margin-top:6px" onclick="App.parPick(\'' + key + '\')">or choose someone already in the tree</button>';
+}
+function renderParents() {
+  $('parF').innerHTML = slotHtml('f', label);
+  $('parM').innerHTML = slotHtml('m', label);
+  $('parFamWrap').hidden = !!(PA.hasF || PA.f.id);
+}
+function parPick(key) {
+  pick(key === 'f' ? 'Choose father' : 'Choose mother', p => p.ID !== PA.id && (key === 'f' ? p.Gender !== 'F' : p.Gender !== 'M'), id => { if (id) { PA[key] = { id, name: '' }; renderParents(); } });
+}
+function closeParents() { $('parOv').classList.remove('show'); }
+async function saveParents() {
+  const np = {};
+  if (!PA.hasF) { if (PA.f.id) np.father_id = PA.f.id; else if (PA.f.name.trim()) np.father = { name: PA.f.name.trim(), family: $('parFamily').value.trim() || null }; }
+  if (!PA.hasM) { if (PA.m.id) np.mother_id = PA.m.id; else if (PA.m.name.trim()) np.mother = { name: PA.m.name.trim() }; }
+  if (!Object.keys(np).length) return toast('Enter the father or the mother');
+  const child = P[PA.id], pl = { person: personFields(child), new_parents: np };
+  try {
+    if (can('editor')) {
+      await busy('Saving…', () => api.savePerson(S.treeId, pl));
+      closeParents(); view.sel = PA.id; await reload();
+      if (PA.fromTree && S.tab === 'tree') { renderTree(false); requestAnimationFrame(() => centerOn(PA.id, true)); }
+      else if ($('profOv').classList.contains('show')) openProfile(PA.id);
+      toast('Parents added for ' + child.Name);
+    } else {
+      await busy('Sending…', () => api.submitRequest(S.treeId, 'save_person', pl, 'Add parents of ' + child.Name));
+      closeParents(); toast('Sent for approval ✓', 3000);
+    }
+  } catch {}
+}
+// jump to a person's own (birth) family tree, e.g. a wife's parents' family
+function openFamily(e, id) {
+  if (e) { e.stopPropagation(); if (moved) return; }
+  closeProfile(); tab('tree');
+  navigate({ mode: view.mode === 'anc' ? savedMode() : view.mode, root: topAncestor(id), sel: id });
+}
+function goUp(e, id) {
+  e.stopPropagation(); if (moved) return;
+  const r = socialParents(id), up = r && (P[r.FatherID] ? r.FatherID : r.MotherID);
+  if (up) { expandState[up] = true; navigate({ root: up, sel: id }); }
+}
+function toggleChain(e, id) { e.stopPropagation(); if (moved) return; expandState['chain:' + id] = true; renderTree(false); }
+
 // ============ Tree ============
 function navigate(v) { hist.push(Object.assign({}, view)); if (hist.length > 50) hist.shift(); view = Object.assign({}, view, v); renderTree(true); }
 function back() { const v = hist.pop(); if (!v) return toast('Nothing to go back to'); view = v; renderTree(true); }
@@ -551,7 +617,9 @@ function descHtml(p, ctx, tag = {}, bdepth = 0) {
   ms.forEach((m, i) => {
     const sp = spouseOf(m, p.ID);
     head += '<div class="sp-row' + (ended(m) ? ' ended' : '') + '" title="' + esc(ended(m) ? m.Status : 'Spouse') + '"><span class="heart' + (ended(m) ? ' ended' : '') + '">♥' + (multi ? i + 1 : '') + '</span>' +
-      box(sp, { spouse: true, ended: ended(m), note: [sp.Family && sp.Family !== p.Family ? sp.Family : '', ended(m) ? (m.Status === 'Ended (death)' ? 'late' : 'separated') : ''].filter(Boolean).join(' · ') }) + '</div>';
+      box(sp, { spouse: true, ended: ended(m), note: [sp.Family && sp.Family !== p.Family ? sp.Family : '', ended(m) ? (m.Status === 'Ended (death)' ? 'late' : 'separated') : ''].filter(Boolean).join(' · ') }) +
+      (parentRows(sp.ID).length ? '<button class="sp-act" title="Open ' + esc(sp.Name) + '’s birth family" onclick="App.openFamily(event,\'' + esc(sp.ID) + '\')">↗ family</button>'
+        : (ctx.explore && can('contributor') ? '<button class="sp-act" onclick="App.openParents(\'' + esc(sp.ID) + '\', true, event)">+ parents</button>' : '')) + '</div>';
   });
   const idx = {}; ms.forEach((m, i) => (idx[spouseOf(m, p.ID).ID] = { m, i }));
   const deferred = new Set();
@@ -574,16 +642,38 @@ function descHtml(p, ctx, tag = {}, bdepth = 0) {
   const n = kids.length + refs.size;
   if (n) {
     const open = isOpen(p.ID, bdepth, ctx);
-    if (open) inner = kids.map(k => k.ref ? refLi(k.ref, k.note) : descHtml(k.c, ctx, k.tag, childDepth)).join('') + [...refs].map(s => refLi(P[s], 'children shown under ' + P[s].Name)).join('');
+    if (open) {
+      const chain = kids.length === 1 && !refs.size && kids[0].c ? foldChain(p.ID, kids[0].c, ctx) : null;
+      inner = chain ? chain : kids.map(k => k.ref ? refLi(k.ref, k.note) : descHtml(k.c, ctx, k.tag, childDepth)).join('') + [...refs].map(s => refLi(P[s], 'children shown under ' + P[s].Name)).join('');
+    }
     else kids.forEach(k => k.c && markSeen(k.c.ID, ctx));
     toggle = '<button class="toggle" title="' + (open ? 'Hide this branch' : 'Show this branch') + '" onclick="App.toggle(event,\'' + esc(p.ID) + '\',' + (open ? 'false' : 'true') + ')">' +
       (open ? '▾' : '▸ ' + (descCount(p.ID) - 1) + (ctx.explore ? '' : ' more')) + '</button>';
   }
   if (ctx.explore && can('contributor'))
     toggle += '<button class="addkid" title="' + (can('editor') ? 'Add a child' : 'Suggest a child') + '" onclick="App.addChildFromTree(event,\'' + esc(p.ID) + '\')">+ child</button>' +
-      '<button class="addkid alt" onclick="App.addSpouseFromTree(event,\'' + esc(p.ID) + '\')">+ ' + (p.Gender === 'F' ? 'husband' : p.Gender === 'M' ? 'wife' : 'spouse') + '</button>';
+      '<button class="addkid alt" onclick="App.addSpouseFromTree(event,\'' + esc(p.ID) + '\')">+ ' + (p.Gender === 'F' ? 'husband' : p.Gender === 'M' ? 'wife' : 'spouse') + '</button>' +
+      (!parentRows(p.ID).length ? '<button class="addkid alt" onclick="App.openParents(\'' + esc(p.ID) + '\', true, event)">+ parents</button>' : '');
   if (toggle) toggle = '<div class="node-actions">' + toggle + '</div>';
-  return '<li' + (tag.adopted ? ' class="adopted"' : '') + '><div class="couple' + (ms.length ? ' has-spouse' : '') + '">' + head + '</div>' + toggle + (inner ? '<ul>' + inner + '</ul>' : '') + '</li>';
+  let up = '';
+  if (ctx.rootId === p.ID && socialParents(p.ID)) {
+    const r = socialParents(p.ID), par = P[r.FatherID] || P[r.MotherID];
+    if (par) up = '<button class="upbtn" onclick="App.goUp(event,\'' + esc(p.ID) + '\')">▲ ' + esc(par.Name) + (parentRows(par.ID).length ? ' & above' : '') + '</button>';
+  }
+  return '<li' + (tag.adopted ? ' class="adopted"' : '') + '>' + up + '<div class="couple' + (ms.length ? ' has-spouse' : '') + '">' + head + '</div>' + toggle + (inner ? '<ul>' + inner + '</ul>' : '') + '</li>';
+}
+// A run of single-child, unmarried generations (e.g. 12 forefathers in a line) folds into one card.
+function foldChain(fromId, first, ctx) {
+  if (expandState['chain:' + fromId]) return null;
+  const run = []; let cur = first;
+  const onlyChild = x => { const ks = [...new Set((PRP[x.ID] || []).map(r => r.ChildID))]; return ks.length === 1 && !marriagesOf(x.ID).length && !(PRP[x.ID][0].Type === 'Adopted') ? P[ks[0]] : null; };
+  while (cur && !ctx.seen.has(cur.ID) && view.sel !== cur.ID && onlyChild(cur)) { run.push(cur); cur = onlyChild(cur); }
+  if (S.expandAll) return null;
+  if (run.length < 3 || !cur) return null;
+  run.forEach(x => ctx.seen.add(x.ID));
+  const names = run.length > 4 ? run[0].Name + ' … ' + run[run.length - 1].Name : run.map(x => x.Name).join(' → ');
+  return '<li><div class="node chain" title="Tap to show every generation" onclick="App.toggleChain(event,\'' + esc(fromId) + '\')">⋮ ' + run.length + ' generations<small>' + esc(names) + '</small></div>' +
+    '<ul>' + descHtml(cur, ctx, {}, 0) + '</ul></li>';
 }
 // collapsed branches: mark their people as placed so whole-village view does not redraw them as roots
 function markSeen(id, ctx) { if (ctx.seen.has(id)) return; ctx.seen.add(id); marriagesOf(id).forEach(m => ctx.doneM.add(m.ID)); (PRP[id] || []).forEach(r => markSeen(r.ChildID, ctx)); }
@@ -615,7 +705,7 @@ function renderTree(recenter) {
   else if (view.mode === 'anc') html = '<ul>' + ancHtml(P[view.root], new Set(), 0, '') + '</ul>';
   else {
     const all = view.root === '__all';
-    const ctx = { seen: new Set(), doneM: new Set(), all, path: view.sel ? pathSet(view.sel) : new Set(), expandAll: S.expandAll, explore: view.mode === 'explore' };
+    const ctx = { seen: new Set(), doneM: new Set(), all, path: view.sel ? pathSet(view.sel) : new Set(), expandAll: S.expandAll, explore: view.mode === 'explore', rootId: all ? null : view.root };
     const roots = all ? fs.map(f => f.p) : [P[view.root]];
     roots.forEach(r => { if (ctx.seen.has(r.ID)) return; const ms = marriagesOf(r.ID); if (all && ms.length && ms.every(m => ctx.doneM.has(m.ID))) return; html += descHtml(r, ctx); });
     if (all) S.DB.people.slice().sort(byBirth).forEach(p => { if (ctx.seen.has(p.ID)) return; if (marriagesOf(p.ID).some(m => ctx.seen.has(spouseOf(m, p.ID).ID))) return; html += descHtml(p, ctx); });
@@ -718,6 +808,10 @@ function describePayload(r) {
   const mar = (pl.marriages || []).map(m => personName(m.spouse_id) + (m.status && m.status !== 'Current' ? ' (' + m.status + ')' : '')).join(', ');
   const oldMar = old ? marriagesOf(old.ID).map(m => spouseOf(m, old.ID).Name + (ended(m) ? ' (' + m.Status + ')' : '')).join(', ') : '';
   if (mar !== oldMar && (mar || oldMar)) h += '<div>Spouse: ' + (oldMar ? '<span class="old">' + esc(oldMar) + '</span> → ' : '') + '<span class="new">' + esc(mar || 'none') + '</span></div>';
+  if (pl.new_parents) {
+    const n = pl.new_parents, f = n.father_id ? personName(n.father_id) : n.father ? n.father.name + ' (new)' : '', m = n.mother_id ? personName(n.mother_id) : n.mother ? n.mother.name + ' (new)' : '';
+    h += '<div>Add parents: <span class="new">' + esc([f && 'father ' + f, m && 'mother ' + m].filter(Boolean).join(', ')) + '</span></div>';
+  }
   (pl.link_children || []).forEach(lc => { if ((lc.child_ids || []).length) h += '<div>Also ' + (np.gender === 'F' ? 'mother' : np.gender === 'M' ? 'father' : 'parent') + ' of: <span class="new">' + esc(lc.child_ids.map(personName).join(', ')) + '</span> <span class="muted">(children of ' + esc(personName(lc.spouse_id)) + ')</span></div>'; });
   if (h === '<div class="diff">') h += '<div class="muted">No visible changes.</div>';
   return h + '</div>';
@@ -850,6 +944,9 @@ window.App = {
   toggleKid: (i, id, on) => { const s = new Set(F.marriages[i].LinkKids || []); on ? s.add(id) : s.delete(id); F.marriages[i].LinkKids = [...s]; },
   allKids: (i, on) => { readForm(); F.marriages[i].LinkKids = on ? freeKids(F.marriages[i].SpouseID) : []; renderRelRows(); },
   navigate, back, setMode, zoomBy, fit, expandAll, toggle, tapNode, focusNode, showInTree, findInTree,
+  openParents: (id, fromTree, e) => { if (e) { e.stopPropagation(); if (moved) return; } openParents(id, fromTree); },
+  closeParents, saveParents, parPick, parClear: k => { PA[k] = { id: '', name: '' }; renderParents(); }, parName: (k, v) => (PA[k].name = v),
+  openFamily, goUp, toggleChain, treeMode: () => (view.mode === 'anc' ? savedMode() : view.mode),
   review, cancelReq, loadHistory, share, invite, cancelInvite, setRole, removeMember, reviewAccess,
 };
 

@@ -126,6 +126,17 @@
   </div>
 </div>
 
+<div class="overlay" id="parOv" onclick="if(event.target===this) App.closeParents()">
+  <div class="sheet">
+    <h2 id="parTitle">Add parents</h2>
+    <div id="parNote" class="hint" hidden></div>
+    <h3>Father</h3><div id="parF"></div>
+    <h3>Mother</h3><div id="parM"></div>
+    <div class="field" id="parFamWrap" style="margin-top:12px"><label>Father’s family / gotra</label><input id="parFamily"></div>
+    <div class="actions"><span class="spacer"></span><button class="btn ghost" onclick="App.closeParents()">Cancel</button><button class="btn" id="parSave" onclick="App.saveParents()">Save</button></div>
+  </div>
+</div>
+
 <div class="overlay" id="pickOv" onclick="if(event.target===this) App.closePick()">
   <div class="sheet">
     <h2 id="pickTitle">Choose</h2>

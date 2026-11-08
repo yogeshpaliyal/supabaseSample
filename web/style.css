@@ -97,6 +97,13 @@ form input + .btn { margin-top: 8px; }
 .kid { display: flex; gap: 10px; align-items: center; padding: 6px 2px; font-size: 14.5px; cursor: pointer; }
 .kid input { width: 18px; height: 18px; accent-color: var(--accent); flex: none; }
 .kid.off { color: var(--muted); cursor: default; }
+.upbtn { display: block; margin: 0 auto 8px; border: 1px dashed var(--accent); background: #fff; color: var(--accent); font: inherit; font-size: 12.5px; font-weight: 700; border-radius: 12px; padding: 4px 12px; cursor: pointer; }
+.node.chain { background: var(--soft); border: 1.5px dashed #b9a98f; color: var(--accent); font-weight: 700; box-shadow: none; }
+.node.chain small { font-weight: 400; max-width: 220px; white-space: normal; }
+.sp-act { border: 0; background: transparent; color: var(--accent); font: inherit; font-size: 11px; font-weight: 700; padding: 0 2px; cursor: pointer; white-space: nowrap; }
+.pslot { display: flex; gap: 8px; align-items: center; }
+.pslot input { flex: 1; }
+.pslot .chosen { flex: 1; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft); font-weight: 600; }
 .addkid.alt { background: #fff; color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .prof-head { display: flex; gap: 12px; align-items: center; margin-top: 4px; }
 .prof-head .av { width: 54px; height: 54px; font-size: 20px; }
