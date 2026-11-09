@@ -643,7 +643,7 @@ function descHtml(p, ctx, tag = {}, bdepth = 0) {
   });
   const idx = {}; ms.forEach((m, i) => (idx[spouseOf(m, p.ID).ID] = { m, i }));
   const deferred = new Set();
-  if (ctx.all && p.Gender === 'F') ms.forEach(m => { if (m.HusbandID !== p.ID && !ctx.seen.has(m.HusbandID)) deferred.add(m.ID); });
+  if (ctx.all && p.Gender === 'F') ms.forEach(m => { if (m.HusbandID !== p.ID && !ctx.seen.has(m.HusbandID) && ctx.willDraw && ctx.willDraw.has(m.HusbandID)) deferred.add(m.ID); });
   const already = new Set(ms.filter(m => ctx.doneM.has(m.ID) || deferred.has(m.ID)).map(m => m.ID));
   ms.forEach(m => { if (!deferred.has(m.ID)) ctx.doneM.add(m.ID); });
   const kids = [], refs = new Set(), dedupe = new Set();
@@ -738,16 +738,20 @@ function renderTree(recenter) {
     const all = view.root === '__all';
     const ctx = { seen: new Set(), doneM: new Set(), all, path: view.sel ? pathSet(view.sel) : new Set(), expandAll: S.expandAll, explore: view.mode === 'explore', rootId: all ? null : view.root };
     const roots = all ? fs.map(f => f.p) : [P[view.root]];
-    const placed = new Set(), hidden = new Set();
+    // Decide first which families get drawn: a smaller family linked to one already drawn only by
+    // marriage is in-laws (e.g. a wife's parents) and opens from ↗ family instead.
+    const placed = new Set(), hidden = new Set(), draw = [];
     roots.forEach(r => {
+      if (!all) { draw.push(r); return; }
+      const L = lineage(r.ID);
+      if ([...L].some(x => placed.has(x))) { L.forEach(x => { if (!placed.has(x)) hidden.add(x); }); return; }   // shares descendants with a drawn family = in-laws
+      if ([...L].some(x => marriagesOf(x).some(m => placed.has(spouseOf(m, x).ID)))) { L.forEach(x => hidden.add(x)); return; }
+      L.forEach(x => placed.add(x)); draw.push(r);
+    });
+    ctx.willDraw = all ? placed : null;
+    draw.forEach(r => {
       if (ctx.seen.has(r.ID)) return;
       const ms = marriagesOf(r.ID); if (all && ms.length && ms.every(m => ctx.doneM.has(m.ID))) return;
-      if (all) {
-        const L = lineage(r.ID);
-        // a smaller family linked to one already drawn only by marriage = in-laws (e.g. a wife's parents): open it from ↗ family
-        if ([...L].some(x => marriagesOf(x).some(m => placed.has(spouseOf(m, x).ID)))) { L.forEach(x => hidden.add(x)); return; }
-        L.forEach(x => placed.add(x));
-      }
       html += descHtml(r, ctx);
     });
     if (all) S.DB.people.slice().sort(byBirth).forEach(p => { if (ctx.seen.has(p.ID) || hidden.has(p.ID)) return; if (marriagesOf(p.ID).some(m => ctx.seen.has(spouseOf(m, p.ID).ID))) return; html += descHtml(p, ctx); });
@@ -897,12 +901,20 @@ async function saveBulk() {
 }
 function toggle(e, id, open) { e.stopPropagation(); if (moved) return; expandState[id] = open; S.expandAll = false; renderTree(false); }
 function expandAll(on) { expandState = {}; S.expandAll = on; renderTree(false); requestAnimationFrame(fit); }
-function focusNode(e, id) { if (e && moved) return; view.sel = id; if (nodeEl(id) && $('treeBox').querySelector('.node.main[data-id="' + CSS.escape(id) + '"]')) { markSel(); centerOn(id, true); return; } showInTree(id); }
+function focusNode(e, id) {
+  if (e && moved) return;
+  view.sel = id;
+  if ($('treeBox').querySelector('.node.main[data-id="' + CSS.escape(id) + '"]')) { markSel(); centerOn(id, true); return; }
+  if (parentRows(id).length || (PRP[id] || []).length) return openFamily(null, id);   // their own family tree
+  showInTree(id);
+}
 function showInTree(id) {
   closeProfile(); tab('tree');
   const m = view.mode === 'anc' ? savedMode() : view.mode;
   if (view.mode !== 'anc' && $('treeBox').querySelector('.node.main[data-id="' + CSS.escape(id) + '"]')) { view.sel = id; markSel(); centerOn(id, true); return; }
   navigate({ mode: m, root: '__all', sel: id });
+  if (!$('treeBox').querySelector('.node.main[data-id="' + CSS.escape(id) + '"]') && !$('treeBox').querySelector('.node[data-id="' + CSS.escape(id) + '"]'))
+    navigate({ mode: m, root: topAncestor(id), sel: id });
 }
 function findInTree() { pick('Find in tree', null, id => { if (id) showInTree(id); }); }
 
