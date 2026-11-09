@@ -741,11 +741,13 @@ function renderTree(recenter) {
     // Decide first which families get drawn: a smaller family linked to one already drawn only by
     // marriage is in-laws (e.g. a wife's parents) and opens from ↗ family instead.
     const placed = new Set(), hidden = new Set(), draw = [];
+    // hide an in-law family: its blood members and the people married into it
+    const hide = L => L.forEach(x => { if (placed.has(x)) return; hidden.add(x); marriagesOf(x).forEach(m => { const sp = spouseOf(m, x).ID; if (!placed.has(sp)) hidden.add(sp); }); });
     roots.forEach(r => {
       if (!all) { draw.push(r); return; }
       const L = lineage(r.ID);
-      if ([...L].some(x => placed.has(x))) { L.forEach(x => { if (!placed.has(x)) hidden.add(x); }); return; }   // shares descendants with a drawn family = in-laws
-      if ([...L].some(x => marriagesOf(x).some(m => placed.has(spouseOf(m, x).ID)))) { L.forEach(x => hidden.add(x)); return; }
+      if ([...L].some(x => placed.has(x))) { hide(L); return; }   // shares descendants with a drawn family = in-laws
+      if ([...L].some(x => marriagesOf(x).some(m => placed.has(spouseOf(m, x).ID)))) { hide(L); return; }
       L.forEach(x => placed.add(x)); draw.push(r);
     });
     ctx.willDraw = all ? placed : null;
