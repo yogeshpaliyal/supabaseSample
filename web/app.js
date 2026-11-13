@@ -39,7 +39,7 @@ const who = p => (p && (p.display_name || p.email)) || 'Someone';
 // ============ Data model (normalised to the shape the UI code uses) ============
 function setData(raw) {
   S.DB = {
-    people: raw.people.map(p => ({ ID: p.id, Name: p.name, Gender: p.gender || '', BirthYear: p.birth_year ?? '', DeathYear: p.death_year ?? '', Family: p.family || '', Village: p.village || '', Notes: p.notes || '', Phone: p.phone || '' })),
+    people: raw.people.map(p => ({ ID: p.id, Name: p.name, Gender: p.gender || '', BirthYear: p.birth_year ?? '', DeathYear: p.death_year ?? '', BirthDate: p.birth_date || '', DeathDate: p.death_date || '', Deceased: !!p.deceased || p.death_year != null, Family: p.family || '', Village: p.village || '', Notes: p.notes || '', Phone: p.phone || '' })),
     marriages: raw.marriages.map(m => ({ ID: m.id, HusbandID: m.husband_id, WifeID: m.wife_id, Status: m.status, Year: m.year ?? '', Notes: m.notes || '' })),
     parents: raw.parents.map(r => ({ ID: r.id, ChildID: r.child_id, FatherID: r.father_id || '', MotherID: r.mother_id || '', Type: r.type })),
   };
@@ -65,9 +65,37 @@ const spouseOf = (m, id) => P[m.HusbandID === id ? m.WifeID : m.HusbandID];
 const parentRows = id => PRC[id] || [];
 const ended = m => m.Status && m.Status !== 'Current';
 function socialParents(id) { const rows = parentRows(id); return rows.find(r => r.Type === 'Adopted') || rows[0] || null; }
-function years(p) { return (!p.BirthYear && !p.DeathYear) ? '' : (p.BirthYear || '?') + (p.DeathYear ? '–' + p.DeathYear : ''); }
+const isDead = p => !!(p.Deceased || p.DeathYear || p.DeathDate);
+const fmtDate = iso => { const d = new Date(iso + 'T00:00:00'); return isNaN(d) ? iso : d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }); };
+// age now, or age at death; approx when only a year is known on either side
+function ageOf(p) {
+  const dead = isDead(p);
+  if (!p.BirthYear && !p.BirthDate) return null;
+  let end, endYear;
+  if (dead) { if (p.DeathDate) end = new Date(p.DeathDate + 'T00:00:00'); endYear = p.DeathYear ? +p.DeathYear : end ? end.getFullYear() : null; if (!endYear) return null; }
+  else { end = new Date(); endYear = end.getFullYear(); }
+  if (p.BirthDate && end) {
+    const b = new Date(p.BirthDate + 'T00:00:00');
+    let n = end.getFullYear() - b.getFullYear();
+    if (end.getMonth() < b.getMonth() || (end.getMonth() === b.getMonth() && end.getDate() < b.getDate())) n--;
+    return n >= 0 && n < 130 ? { n, approx: false } : null;
+  }
+  const n = endYear - (+p.BirthYear || new Date(p.BirthDate).getFullYear());
+  return n >= 0 && n < 130 ? { n, approx: true } : null;
+}
+function ageTxt(p, short) {
+  const a = ageOf(p); if (!a) return '';
+  const n = (a.approx ? '~' : '') + a.n;
+  return isDead(p) ? (short ? 'aged ' + n : 'died at ' + n) : (short ? n + 'y' : 'age ' + n);
+}
+function years(p, short) {
+  const b = p.BirthYear, d = p.DeathYear, dead = isDead(p);
+  const span = dead ? ((b || d) ? (b || '?') + '–' + (d || '?') : '') : (b ? String(b) : '');
+  return [span, ageTxt(p, short)].filter(Boolean).join(' · ');
+}
+const deadMark = p => isDead(p) ? '<span class="dg" title="Passed away">†</span>' : '';
 function birthOrder(p) { const m = /(?:Birth order|Listed)\s*(\d+)/i.exec(p.Notes || '') || /(\d+)(?:st|nd|rd|th)\s+(?:son|daughter)/i.exec(p.Notes || ''); return m ? +m[1] : 99; }
-function byBirth(a, b) { return (parseInt(a.BirthYear) || 9999) - (parseInt(b.BirthYear) || 9999) || birthOrder(a) - birthOrder(b) || a.Name.localeCompare(b.Name); }
+function byBirth(a, b) { return (parseInt(a.BirthYear) || 9999) - (parseInt(b.BirthYear) || 9999) || (a.BirthDate && b.BirthDate ? a.BirthDate.localeCompare(b.BirthDate) : 0) || birthOrder(a) - birthOrder(b) || a.Name.localeCompare(b.Name); }
 const byName = (a, b) => a.Name.localeCompare(b.Name);
 function relOf(p) {
   const r = socialParents(p.ID), f = r && (P[r.FatherID] || P[r.MotherID]);
@@ -197,7 +225,7 @@ function renderList() {
   $('count').textContent = rows.length + ' of ' + S.DB.people.length + ' people';
   $('list').innerHTML = rows.length ? rows.slice(0, 300).map(p =>
     '<div class="item" onclick="App.openProfile(\'' + esc(p.ID) + '\', true)">' + avatar(p) +
-    '<div class="grow"><div class="nm">' + esc(p.Name) + '</div><div class="sub">' + esc([years(p), relOf(p), p.Family, p.Village].filter(Boolean).join(' · ')) + '</div></div></div>'
+    '<div class="grow"><div class="nm">' + esc(p.Name) + deadMark(p) + '</div><div class="sub">' + esc([years(p), relOf(p), p.Family, p.Village].filter(Boolean).join(' · ')) + '</div></div></div>'
   ).join('') + (rows.length > 300 ? '<div class="muted small">Showing first 300 — refine your search.</div>' : '')
     : '<div class="empty">' + (S.DB.people.length ? 'No match.' : 'No people yet.' + (can('contributor') ? ' Tap “+ Add” to start.' : '')) + '</div>';
 }
@@ -250,13 +278,20 @@ function siblingsOf(id) {
   return Object.values(out).sort((a, b) => byBirth(a.p, b.p));
 }
 
+function lifeLine(p) {
+  const born = p.BirthDate ? fmtDate(p.BirthDate) : p.BirthYear ? String(p.BirthYear) : '';
+  if (!isDead(p)) return born ? '🎂 Born ' + born + (ageTxt(p) ? ' · ' + ageTxt(p).replace(/^a/, 'A') : '') : '';
+  const died = p.DeathDate ? fmtDate(p.DeathDate) : p.DeathYear ? String(p.DeathYear) : '';
+  return '🕯️ ' + [born && 'Born ' + born, 'Passed away' + (died ? ' ' + died : ''), ageTxt(p).replace('died at', 'aged')].filter(Boolean).join(' · ');
+}
 function profileHtml(p) {
   const id = p.ID, e = esc(id);
   const editLbl = can('editor') ? '✏️ Edit' : '✏️ Suggest edit';
   let h = '<div class="row2" style="align-items:center"><div>' + (profHist.length > 1 ? '<button class="btn sm ghost" onclick="App.profBack()">← Back</button>' : '') +
     '</div><div style="text-align:right"><button class="icon-btn" onclick="App.closeProfile()">✕</button></div></div>';
-  h += '<div class="prof-head">' + avatar(p) + '<div><h2 style="margin:0">' + esc(p.Name) + '</h2><div class="sub">' +
-    esc([p.Gender === 'M' ? 'Male' : p.Gender === 'F' ? 'Female' : '', years(p), p.Family, relOf(p)].filter(Boolean).join(' · ')) + '</div>' +
+  h += '<div class="prof-head">' + avatar(p) + '<div><h2 style="margin:0">' + esc(p.Name) + deadMark(p) + '</h2><div class="sub">' +
+    esc([p.Gender === 'M' ? 'Male' : p.Gender === 'F' ? 'Female' : '', p.Family, relOf(p)].filter(Boolean).join(' · ')) + '</div>' +
+    (lifeLine(p) ? '<div class="sub">' + esc(lifeLine(p)) + '</div>' : '') +
     (p.Village ? '<div class="sub">📍 ' + esc(p.Village) + '</div>' : '') + '</div></div>';
   if (p.Phone) h += '<div class="contact"><span class="num">📞 ' + esc(p.Phone) + '</span><span class="spacer"></span>' +
     '<a class="btn sm" href="tel:' + esc(p.Phone.replace(/[^+0-9]/g, '')) + '">Call</a>' +
@@ -360,12 +395,13 @@ function openEdit(id, preset) {
   if (!preset) S.addFromTree = false;
   const p = P[id];
   F = {
-    person: Object.assign({ ID: '', Name: '', Gender: '', BirthYear: '', DeathYear: '', Family: '', Village: '', Notes: '', Phone: '' }, p || (preset && preset.person) || {}),
+    person: Object.assign({ ID: '', Name: '', Gender: '', BirthYear: '', DeathYear: '', BirthDate: '', DeathDate: '', Deceased: false, Family: '', Village: '', Notes: '', Phone: '' }, p || (preset && preset.person) || {}),
     parents: p ? parentRows(id).map(r => ({ FatherID: r.FatherID, MotherID: r.MotherID, Type: r.Type || 'Biological' })) : ((preset && preset.parents) || []),
     marriages: p ? marriagesOf(id).map(m => ({ SpouseID: spouseOf(m, id).ID, Status: m.Status || 'Current', Year: m.Year, Notes: m.Notes })) : ((preset && preset.marriages) || []),
   };
   if (!F.parents.some(r => r.Type !== 'Adopted')) F.parents.unshift({ FatherID: '', MotherID: '', Type: 'Biological' });
-  ['Name', 'Gender', 'BirthYear', 'DeathYear', 'Family', 'Village', 'Notes', 'Phone'].forEach(k => ($('f_' + k).value = F.person[k] ?? ''));
+  FORM_KEYS.forEach(k => ($('f_' + k).value = F.person[k] ?? ''));
+  $('f_Deceased').checked = isDead(F.person); dateSync();
   const direct = can('editor');
   $('formTitle').textContent = (p ? (direct ? 'Edit ' : 'Suggest changes to ') + p.Name : (direct ? 'Add person' : 'Suggest a new person'));
   $('formNote').hidden = direct;
@@ -380,7 +416,35 @@ function openEdit(id, preset) {
 }
 function closeEdit() { $('editOv').classList.remove('show'); S.addFromTree = false; }
 function pbtn(val, ph, onclick) { const p = P[val]; return '<button class="pickbtn' + (p ? '' : ' emptyv') + '" onclick="' + onclick + '">' + esc(p ? label(p) : ph) + '</button>'; }
-function readForm() { ['Name', 'Gender', 'BirthYear', 'DeathYear', 'Family', 'Village', 'Notes', 'Phone'].forEach(k => (F.person[k] = $('f_' + k).value.trim())); }
+const FORM_KEYS = ['Name', 'Gender', 'BirthYear', 'BirthDate', 'DeathYear', 'DeathDate', 'Family', 'Village', 'Notes', 'Phone'];
+function readForm() {
+  FORM_KEYS.forEach(k => (F.person[k] = $('f_' + k).value.trim()));
+  F.person.Deceased = $('f_Deceased').checked;
+  if (!F.person.Deceased) { F.person.DeathYear = ''; F.person.DeathDate = ''; }
+}
+// keep year and full date in step, show/hide the death fields and a live age hint
+function dateSync(which, from) {
+  if (which) {
+    const y = $('f_' + which + 'Year'), d = $('f_' + which + 'Date');
+    if (from === 'date' && d.value) y.value = d.value.slice(0, 4);
+    if (from === 'year' && d.value && d.value.slice(0, 4) !== y.value.trim()) d.value = '';
+  }
+  const dead = $('f_Deceased').checked;
+  $('deathRow').hidden = !dead;
+  const tmp = { BirthYear: $('f_BirthYear').value.trim(), BirthDate: $('f_BirthDate').value, Deceased: dead,
+    DeathYear: dead ? $('f_DeathYear').value.trim() : '', DeathDate: dead ? $('f_DeathDate').value : '' };
+  const t = ageTxt(tmp);
+  $('ageHint').textContent = t ? t.charAt(0).toUpperCase() + t.slice(1) + (ageOf(tmp).approx ? ' (approx — add the date for exact age)' : '') : '';
+}
+function dateErr(p) {
+  const yr = new Date().getFullYear(), today = new Date().toISOString().slice(0, 10);
+  for (const [k, l] of [['BirthYear', 'Birth year'], ['DeathYear', 'Death year']])
+    if (p[k] && !(/^\d{3,4}$/.test(p[k]) && +p[k] <= yr)) return l + ' should be a year like 1985';
+  if ((p.BirthDate && p.BirthDate > today) || (p.DeathDate && p.DeathDate > today)) return 'Date can’t be in the future';
+  if (p.BirthYear && p.DeathYear && +p.DeathYear < +p.BirthYear) return 'Death year is before birth year';
+  if (p.BirthDate && p.DeathDate && p.DeathDate < p.BirthDate) return 'Date of death is before date of birth';
+  return '';
+}
 function renderRelRows() {
   $('f_parents').innerHTML = F.parents.map((r, i) =>
     '<div class="relrow"><div class="row2"><div class="sub">' + (r.Type === 'Adopted' ? 'Adoptive parents' : 'Birth parents') + '</div>' +
@@ -435,7 +499,8 @@ function pickSpouse(i) { readForm(); const self = F.person.ID; pick('Choose spou
 function payloadFromForm() {
   const p = F.person;
   return {
-    person: { id: p.ID || null, name: p.Name, gender: p.Gender || null, birth_year: p.BirthYear || null, death_year: p.DeathYear || null, family: p.Family || null, village: p.Village || null, notes: p.Notes || null, phone: p.Phone || null },
+    person: { id: p.ID || null, name: p.Name, gender: p.Gender || null, birth_year: p.BirthYear || null, death_year: p.DeathYear || null, family: p.Family || null, village: p.Village || null, notes: p.Notes || null, phone: p.Phone || null,
+      birth_date: p.BirthDate || null, death_date: p.DeathDate || null, deceased: !!p.Deceased },
     parents: F.parents.filter(r => r.FatherID || r.MotherID).map(r => ({ father_id: r.FatherID || null, mother_id: r.MotherID || null, type: r.Type })),
     marriages: F.marriages.filter(m => m.SpouseID).map(m => ({ spouse_id: m.SpouseID, status: m.Status, year: m.Year || null, notes: m.Notes || null })),
     ...(F.marriages.some(m => m.SpouseID && (m.LinkKids || []).length)
@@ -453,6 +518,7 @@ function summarize(pl) {
 async function save() {
   readForm();
   if (!F.person.Name) return toast('Name is required');
+  if (dateErr(F.person)) return toast(dateErr(F.person), 3500);
   if (F.person.Phone && !/^\+?[0-9][0-9 ()-]{5,19}$/.test(F.person.Phone)) return toast('Mobile number should contain only digits (and an optional + country code)', 3500);
   const pl = payloadFromForm();
   try {
@@ -621,10 +687,10 @@ function isOpen(id, bdepth, ctx) {
 }
 
 function box(p, o = {}) {
-  const cls = ['node', p.Gender, o.main ? 'main' : '', o.spouse ? 'sp' : '', o.ended ? 'ended' : '', o.adopted ? 'adopt' : '', view.sel === p.ID ? 'sel' : ''].filter(Boolean).join(' ');
+  const cls = ['node', p.Gender, isDead(p) ? 'dead' : '', o.main ? 'main' : '', o.spouse ? 'sp' : '', o.ended ? 'ended' : '', o.adopted ? 'adopt' : '', view.sel === p.ID ? 'sel' : ''].filter(Boolean).join(' ');
   return '<div class="' + cls + '" data-id="' + esc(p.ID) + '" onclick="App.tapNode(event,\'' + esc(p.ID) + '\')">' +
-    (o.badge ? '<span class="badge2">' + o.badge + '</span>' : '') + '<span class="nm">' + esc(p.Name) + '</span>' +
-    ((years(p) || o.note) ? '<small>' + esc([years(p), o.note].filter(Boolean).join(' · ')) + '</small>' : '') + '</div>';
+    (o.badge ? '<span class="badge2">' + o.badge + '</span>' : '') + '<span class="nm">' + esc(p.Name) + deadMark(p) + '</span>' +
+    ((years(p, true) || o.note) ? '<small>' + esc([years(p, true), o.note].filter(Boolean).join(' · ')) + '</small>' : '') + '</div>';
 }
 const refLi = (p, note) => '<li><div class="node ref" onclick="App.focusNode(event,\'' + esc(p.ID) + '\')">↪ ' + esc(p.Name) + '<small>' + esc(note) + '</small></div></li>';
 
@@ -935,10 +1001,10 @@ function describePayload(r) {
     return '<div class="diff">Remove <b>' + esc(p ? label(p) : 'a person who is no longer in the tree') + '</b> and their links.</div>';
   }
   const pl = r.payload, np = pl.person || {}, old = np.id ? P[np.id] : null;
-  const fields = [['Name', 'name', 'Name'], ['Gender', 'gender', 'Gender'], ['Birth year', 'birth_year', 'BirthYear'], ['Death year', 'death_year', 'DeathYear'], ['Family', 'family', 'Family'], ['Village', 'village', 'Village'], ['Mobile', 'phone', 'Phone'], ['Notes', 'notes', 'Notes']];
+  const fields = [['Name', 'name', 'Name'], ['Gender', 'gender', 'Gender'], ['Birth year', 'birth_year', 'BirthYear'], ['Death year', 'death_year', 'DeathYear'], ['Date of birth', 'birth_date', 'BirthDate'], ['Date of death', 'death_date', 'DeathDate'], ['Passed away', 'deceased', 'Deceased'], ['Family', 'family', 'Family'], ['Village', 'village', 'Village'], ['Mobile', 'phone', 'Phone'], ['Notes', 'notes', 'Notes']];
   let h = '<div class="diff">';
   fields.forEach(([lbl, k, ok]) => {
-    const nv = np[k] == null ? '' : String(np[k]), ov = old ? String(old[ok] ?? '') : '';
+    const fv = v => v === true ? 'Yes' : (v === false || v == null) ? '' : String(v), nv = fv(np[k]), ov = old ? fv(old[ok]) : '';
     if (old && nv === ov) return;
     if (!nv && !ov) return;
     h += '<div>' + lbl + ': ' + (old && ov ? '<span class="old">' + esc(ov) + '</span> → ' : '') + '<span class="new">' + esc(nv || '(empty)') + '</span></div>';
@@ -1082,6 +1148,7 @@ window.App = {
   rmParent: i => { readForm(); F.parents.splice(i, 1); renderRelRows(); },
   rmMarriage: i => { readForm(); F.marriages.splice(i, 1); renderRelRows(); },
   setM: (i, k, v) => (F.marriages[i][k] = v),
+  dateSync,
   toggleKid: (i, id, on) => { const s = new Set(F.marriages[i].LinkKids || []); on ? s.add(id) : s.delete(id); F.marriages[i].LinkKids = [...s]; },
   allKids: (i, on) => { readForm(); F.marriages[i].LinkKids = on ? freeKids(F.marriages[i].SpouseID) : []; renderRelRows(); },
   navigate, back, setMode, zoomBy, fit, expandAll, toggle, tapNode, focusNode, showInTree, findInTree,
