@@ -27,7 +27,7 @@ function toast(msg, ms = 2200) {
 }
 function fail(e) { console.error(e); toast('⚠️ ' + (e && e.message ? e.message : e), 5000); }
 async function busy(msg, fn) { toast(msg, 0); try { const r = await fn(); toast(''); return r; } catch (e) { fail(e); throw e; } }
-function show(id) { ['boot', 'scrSignin', 'scrTrees', 'scrApp'].forEach(s => ($(s).hidden = s !== id)); }
+function show(id) { ['boot', 'scrSignin', 'scrTrees', 'scrApp'].forEach(s => ($(s).hidden = s !== id)); $('qfab').hidden = id !== 'scrApp'; }
 function ago(t) {
   const s = (Date.now() - new Date(t)) / 1000;
   if (s < 60) return 'just now'; if (s < 3600) return Math.floor(s / 60) + 'm ago';
@@ -224,7 +224,7 @@ function renderList() {
   const rows = S.DB.people.filter(p => !q || ([p.Name, p.Family, p.Village, p.Notes, relOf(p)].join(' ').toLowerCase().includes(q) || (digits(q).length >= 3 && digits(p.Phone).includes(digits(q))))).sort((a, b) => rank(a) - rank(b) || byName(a, b));
   $('count').textContent = rows.length + ' of ' + S.DB.people.length + ' people';
   $('list').innerHTML = rows.length ? rows.slice(0, 300).map(p =>
-    '<div class="item" onclick="App.openProfile(\'' + esc(p.ID) + '\', true)">' + avatar(p) +
+    '<div class="item" data-qa="' + esc(p.ID) + '" onclick="App.openProfile(\'' + esc(p.ID) + '\', true)">' + avatar(p) +
     '<div class="grow"><div class="nm">' + esc(p.Name) + deadMark(p) + '</div><div class="sub">' + esc([years(p), relOf(p), p.Family, p.Village].filter(Boolean).join(' · ')) + '</div></div></div>'
   ).join('') + (rows.length > 300 ? '<div class="muted small">Showing first 300 — refine your search.</div>' : '')
     : '<div class="empty">' + (S.DB.people.length ? 'No match.' : 'No people yet.' + (can('contributor') ? ' Tap “+ Add” to start.' : '')) + '</div>';
@@ -401,6 +401,8 @@ function openEdit(id, preset) {
   };
   if (!F.parents.some(r => r.Type !== 'Adopted')) F.parents.unshift({ FatherID: '', MotherID: '', Type: 'Biological' });
   FORM_KEYS.forEach(k => ($('f_' + k).value = F.person[k] ?? ''));
+  $('f_Born').value = whenInput(F.person.BirthYear, F.person.BirthDate);
+  $('f_Died').value = whenInput(F.person.DeathYear, F.person.DeathDate);
   $('f_Deceased').checked = isDead(F.person); dateSync();
   const direct = can('editor');
   $('formTitle').textContent = (p ? (direct ? 'Edit ' : 'Suggest changes to ') + p.Name : (direct ? 'Add person' : 'Suggest a new person'));
@@ -416,30 +418,52 @@ function openEdit(id, preset) {
 }
 function closeEdit() { $('editOv').classList.remove('show'); S.addFromTree = false; }
 function pbtn(val, ph, onclick) { const p = P[val]; return '<button class="pickbtn' + (p ? '' : ' emptyv') + '" onclick="' + onclick + '">' + esc(p ? label(p) : ph) + '</button>'; }
-const FORM_KEYS = ['Name', 'Gender', 'BirthYear', 'BirthDate', 'DeathYear', 'DeathDate', 'Family', 'Village', 'Notes', 'Phone'];
+const FORM_KEYS = ['Name', 'Gender', 'Family', 'Village', 'Notes', 'Phone'];
+// One field per event: "1985", "15-03-1985", "15/3/1985", "15 03 1985", "15031985" or "1985-03-15"
+function parseWhen(v) {
+  v = String(v || '').trim();
+  if (!v) return { year: '', date: '' };
+  if (/^\d{4}$/.test(v)) return { year: v, date: '' };
+  let m = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/), d, mo, y;
+  if (m) [y, mo, d] = [m[1], m[2], m[3]];
+  else if ((m = v.match(/^(\d{1,2})[\s./,-]+(\d{1,2})[\s./,-]+(\d{4})$/) || v.match(/^(\d{2})(\d{2})(\d{4})$/))) [d, mo, y] = [m[1], m[2], m[3]];
+  else return { err: true };
+  const dt = new Date(Date.UTC(+y, +mo - 1, +d));
+  if (dt.getUTCFullYear() !== +y || dt.getUTCMonth() !== +mo - 1 || dt.getUTCDate() !== +d) return { err: true };
+  return { year: y, date: y + '-' + String(mo).padStart(2, '0') + '-' + String(d).padStart(2, '0') };
+}
+const whenInput = (year, date) => date ? date.slice(8, 10) + '-' + date.slice(5, 7) + '-' + date.slice(0, 4) : (year ? String(year) : '');
 function readForm() {
   FORM_KEYS.forEach(k => (F.person[k] = $('f_' + k).value.trim()));
   F.person.Deceased = $('f_Deceased').checked;
-  if (!F.person.Deceased) { F.person.DeathYear = ''; F.person.DeathDate = ''; }
+  const b = parseWhen($('f_Born').value), d = F.person.Deceased ? parseWhen($('f_Died').value) : { year: '', date: '' };
+  F.whenErr = b.err ? 'Born' : d.err ? 'Died' : '';
+  F.person.BirthYear = b.year || ''; F.person.BirthDate = b.date || '';
+  F.person.DeathYear = d.year || ''; F.person.DeathDate = d.date || '';
 }
+function pickDate(which) {
+  const pk = $('f_' + which + 'Pick'), cur = parseWhen($('f_' + which).value);
+  pk.value = cur.date || (cur.year ? cur.year + '-01-01' : '');
+  try { pk.showPicker(); } catch { pk.focus(); pk.click(); }
+}
+function datePicked(which) { const v = $('f_' + which + 'Pick').value; if (v) { $('f_' + which).value = whenInput('', v); dateSync(); } }
 // keep year and full date in step, show/hide the death fields and a live age hint
-function dateSync(which, from) {
-  if (which) {
-    const y = $('f_' + which + 'Year'), d = $('f_' + which + 'Date');
-    if (from === 'date' && d.value) y.value = d.value.slice(0, 4);
-    if (from === 'year' && d.value && d.value.slice(0, 4) !== y.value.trim()) d.value = '';
-  }
+function dateSync() {
   const dead = $('f_Deceased').checked;
   $('deathRow').hidden = !dead;
-  const tmp = { BirthYear: $('f_BirthYear').value.trim(), BirthDate: $('f_BirthDate').value, Deceased: dead,
-    DeathYear: dead ? $('f_DeathYear').value.trim() : '', DeathDate: dead ? $('f_DeathDate').value : '' };
+  const b = parseWhen($('f_Born').value), d = dead ? parseWhen($('f_Died').value) : { year: '', date: '' }, h = $('ageHint');
+  const bad = b.err ? 'Born' : d.err ? 'Died' : '';
+  h.classList.toggle('err', !!bad);
+  if (bad) { h.textContent = bad + ': type a year like 1985 or a date like 15-03-1985'; return; }
+  const tmp = { BirthYear: b.year, BirthDate: b.date, Deceased: dead, DeathYear: d.year, DeathDate: d.date };
   const t = ageTxt(tmp);
-  $('ageHint').textContent = t ? t.charAt(0).toUpperCase() + t.slice(1) + (ageOf(tmp).approx ? ' (approx — add the date for exact age)' : '') : '';
+  h.textContent = t ? t.charAt(0).toUpperCase() + t.slice(1) + (ageOf(tmp).approx ? ' (approx — enter the full date for exact age)' : '') + (b.date ? ' · born ' + fmtDate(b.date) : '') : '';
 }
 function dateErr(p) {
+  if (F && F.whenErr) return F.whenErr + ': type a year like 1985 or a date like 15-03-1985';
   const yr = new Date().getFullYear(), today = new Date().toISOString().slice(0, 10);
   for (const [k, l] of [['BirthYear', 'Birth year'], ['DeathYear', 'Death year']])
-    if (p[k] && !(/^\d{3,4}$/.test(p[k]) && +p[k] <= yr)) return l + ' should be a year like 1985';
+    if (p[k] && !(/^\d{4}$/.test(p[k]) && +p[k] >= 1000 && +p[k] <= yr)) return l + ' can’t be in the future';
   if ((p.BirthDate && p.BirthDate > today) || (p.DeathDate && p.DeathDate > today)) return 'Date can’t be in the future';
   if (p.BirthYear && p.DeathYear && +p.DeathYear < +p.BirthYear) return 'Death year is before birth year';
   if (p.BirthDate && p.DeathDate && p.DeathDate < p.BirthDate) return 'Date of death is before date of birth';
@@ -688,7 +712,7 @@ function isOpen(id, bdepth, ctx) {
 
 function box(p, o = {}) {
   const cls = ['node', p.Gender, isDead(p) ? 'dead' : '', o.main ? 'main' : '', o.spouse ? 'sp' : '', o.ended ? 'ended' : '', o.adopted ? 'adopt' : '', view.sel === p.ID ? 'sel' : ''].filter(Boolean).join(' ');
-  return '<div class="' + cls + '" data-id="' + esc(p.ID) + '" onclick="App.tapNode(event,\'' + esc(p.ID) + '\')">' +
+  return '<div class="' + cls + '" data-id="' + esc(p.ID) + '" data-qa="' + esc(p.ID) + '" onclick="App.tapNode(event,\'' + esc(p.ID) + '\')">' +
     (o.badge ? '<span class="badge2">' + o.badge + '</span>' : '') + '<span class="nm">' + esc(p.Name) + deadMark(p) + '</span>' +
     ((years(p, true) || o.note) ? '<small>' + esc([years(p, true), o.note].filter(Boolean).join(' · ')) + '</small>' : '') + '</div>';
 }
@@ -889,7 +913,75 @@ function markSel() {
   document.querySelectorAll('#treeBox .node.sel').forEach(e => e.classList.remove('sel'));
   document.querySelectorAll('#treeBox .node[data-id="' + CSS.escape(view.sel) + '"]').forEach(e => e.classList.add('sel'));
 }
-function tapNode(e, id) { if (moved) return; if (S.selectMode) return togglePick(id); view.sel = id; markSel(); openProfile(id, true); }
+// ============ Shortcuts: quick find, long-press quick actions, keyboard ============
+function quickFind() { pick('Quick find', null, id => { if (id) openQuick(id); }); }
+function openQuick(id) {
+  const p = P[id]; if (!p) return;
+  const e = esc(id), c = can('contributor'), b = (ic, t, js) => '<button class="btn ghost" onclick="App.closeQuick(); ' + js + '">' + ic + ' ' + t + '</button>';
+  $('qaBox').innerHTML = '<div class="prof-head">' + avatar(p) + '<div class="grow"><h2 style="margin:0">' + esc(p.Name) + deadMark(p) + '</h2><div class="sub">' +
+    esc([relOf(p), p.Family, p.Village].filter(Boolean).join(' · ')) + '</div>' + (lifeLine(p) ? '<div class="sub">' + esc(lifeLine(p)) + '</div>' : '') +
+    '</div><button class="icon-btn" style="margin-left:auto" onclick="App.closeQuick()">✕</button></div><div class="qa-grid">' +
+    b('👤', 'Open profile', "App.openProfile('" + e + "', true)") +
+    b('🌳', 'Show in tree', "App.showInTree('" + e + "')") +
+    (c ? b('✏️', can('editor') ? 'Edit' : 'Suggest edit', "App.openEdit('" + e + "')") +
+      b('👶', 'Add child', "App.addChild('" + e + "')") +
+      b('💍', p.Gender === 'F' ? 'Add husband' : p.Gender === 'M' ? 'Add wife' : 'Add spouse', "App.addSpouse('" + e + "')") +
+      b('👪', 'Add parents', "App.openParents('" + e + "')") : '') +
+    (p.Phone ? '<a class="btn ghost" href="tel:' + esc(p.Phone.replace(/[^+0-9]/g, '')) + '">📞 Call</a>' : '') +
+    '</div>';
+  $('qaOv').classList.add('show');
+}
+function closeQuick() { $('qaOv').classList.remove('show'); }
+let lpTimer = null, lpStart = null, lpFired = false;
+function setupShortcuts() {
+  const cancel = () => { clearTimeout(lpTimer); lpTimer = null; };
+  document.addEventListener('pointerdown', ev => {
+    const el = ev.target.closest && ev.target.closest('[data-qa]'); lpFired = false;
+    if (!el || ev.button > 0 || S.selectMode) return;
+    lpStart = { x: ev.clientX, y: ev.clientY }; cancel();
+    lpTimer = setTimeout(() => { lpFired = true; lpTimer = null; if (navigator.vibrate) navigator.vibrate(15); openQuick(el.dataset.qa); }, 520);
+  }, true);
+  document.addEventListener('pointermove', ev => { if (lpTimer && Math.hypot(ev.clientX - lpStart.x, ev.clientY - lpStart.y) > 8) cancel(); }, true);
+  ['pointerup', 'pointercancel', 'scroll'].forEach(t => document.addEventListener(t, cancel, true));
+  // the tap that ends a long-press must not also open the profile
+  document.addEventListener('click', ev => { if (lpFired) { lpFired = false; if (ev.target.closest && ev.target.closest('[data-qa]')) { ev.stopPropagation(); ev.preventDefault(); } } }, true);
+  document.addEventListener('contextmenu', ev => {
+    const el = ev.target.closest && ev.target.closest('[data-qa]');
+    if (el && !S.selectMode) { ev.preventDefault(); cancel(); if (!lpFired) openQuick(el.dataset.qa); }
+  });
+  document.addEventListener('keydown', ev => {
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(ev.target.tagName) || ev.target.isContentEditable, mod = ev.ctrlKey || ev.metaKey;
+    const open = id => $(id).classList.contains('show');
+    if (ev.key === 'Escape') {
+      const top = ['pickOv', 'qaOv', 'parOv', 'bulkOv', 'editOv', 'profOv'].find(open);
+      if (top) { ev.preventDefault(); ({ pickOv: closePick, qaOv: closeQuick, parOv: closeParents, bulkOv: closeBulk, editOv: closeEdit, profOv: closeProfile })[top](); }
+      return;
+    }
+    if (mod && (ev.key === 'Enter' || ev.key.toLowerCase() === 's')) {
+      if (open('pickOv')) return;
+      const act = open('parOv') ? saveParents : open('bulkOv') ? saveBulk : open('editOv') ? save : null;
+      if (act) { ev.preventDefault(); act(); } return;
+    }
+    if (!$('qfab') || $('qfab').hidden) return;          // only inside a tree
+    if (mod && ev.key.toLowerCase() === 'k') { ev.preventDefault(); quickFind(); return; }
+    if (typing || mod || ev.altKey) return;
+    const anyOpen = ['pickOv', 'qaOv', 'parOv', 'bulkOv', 'editOv'].some(open);
+    if (anyOpen) return;
+    const cur = open('profOv') ? profHist[profHist.length - 1] : view.sel;
+    const k = ev.key;
+    if (k === '/') { ev.preventDefault(); quickFind(); }
+    else if (k === 'n' && can('contributor')) { ev.preventDefault(); closeProfile(); openEdit(); }
+    else if (k === 'e' && cur && P[cur] && can('contributor')) { ev.preventDefault(); openEdit(cur); }
+    else if (k === 'c' && cur && P[cur] && can('contributor')) { ev.preventDefault(); addChild(cur); }
+    else if (k === 'q' && cur && P[cur]) { ev.preventDefault(); openQuick(cur); }
+    else if (k === 't') { closeProfile(); tab('tree'); }
+    else if (k === 'p') { closeProfile(); tab('people'); setTimeout(() => $('q').focus(), 30); }
+    else if (k === '?') toast('Shortcuts:  /  find · n  new · e  edit · c  add child · q  quick actions · t  tree · p  people · Ctrl+Enter  save · Esc  close', 6000);
+  });
+}
+setupShortcuts();
+
+function tapNode(e, id) { if (moved || lpFired) return; if (S.selectMode) return togglePick(id); view.sel = id; markSel(); openProfile(id, true); }
 
 // ============ Multi-select & bulk edit ============
 S.selectMode = false; S.picked = new Set();
@@ -898,6 +990,7 @@ function toggleSelect() {
   if (!S.selectMode) S.picked.clear();
   $('selBtn').classList.toggle('on', S.selectMode);
   $('treeWrap').classList.toggle('selecting', S.selectMode);
+  document.body.classList.toggle('selecting', S.selectMode);
   paintPicked(); updateSelBar();
   if (S.selectMode) toast('Tap people to select them', 1800);
 }
@@ -1148,7 +1241,7 @@ window.App = {
   rmParent: i => { readForm(); F.parents.splice(i, 1); renderRelRows(); },
   rmMarriage: i => { readForm(); F.marriages.splice(i, 1); renderRelRows(); },
   setM: (i, k, v) => (F.marriages[i][k] = v),
-  dateSync,
+  dateSync, pickDate, datePicked, quickFind, openQuick, closeQuick,
   toggleKid: (i, id, on) => { const s = new Set(F.marriages[i].LinkKids || []); on ? s.add(id) : s.delete(id); F.marriages[i].LinkKids = [...s]; },
   allKids: (i, on) => { readForm(); F.marriages[i].LinkKids = on ? freeKids(F.marriages[i].SpouseID) : []; renderRelRows(); },
   navigate, back, setMode, zoomBy, fit, expandAll, toggle, tapNode, focusNode, showInTree, findInTree,

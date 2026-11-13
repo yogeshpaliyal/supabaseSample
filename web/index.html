@@ -107,15 +107,13 @@
         <select id="f_Gender"><option value="">—</option><option value="M">Male</option><option value="F">Female</option></select></div>
       <div class="field"><label>Family / Gotra</label><input id="f_Family"></div>
     </div>
-    <div class="row2">
-      <div class="field"><label>Birth year</label><input id="f_BirthYear" inputmode="numeric" placeholder="e.g. 1985" oninput="App.dateSync('Birth','year')"></div>
-      <div class="field"><label>Date of birth <span class="muted">(optional)</span></label><input id="f_BirthDate" type="date" onchange="App.dateSync('Birth','date')"></div>
-    </div>
+    <div class="field"><label>Born <span class="muted">— year or full date</span></label>
+      <div class="dateinp"><input id="f_Born" inputmode="numeric" autocomplete="off" placeholder="1985  or  15-03-1985" oninput="App.dateSync()">
+        <button type="button" class="icon-btn" title="Pick a date" onclick="App.pickDate('Born')">📅</button><input type="date" id="f_BornPick" tabindex="-1" onchange="App.datePicked('Born')"></div></div>
     <label class="checkline"><input type="checkbox" id="f_Deceased" onchange="App.dateSync()"> Passed away</label>
-    <div class="row2" id="deathRow" hidden>
-      <div class="field"><label>Death year</label><input id="f_DeathYear" inputmode="numeric" placeholder="if known" oninput="App.dateSync('Death','year')"></div>
-      <div class="field"><label>Date of death <span class="muted">(optional)</span></label><input id="f_DeathDate" type="date" onchange="App.dateSync('Death','date')"></div>
-    </div>
+    <div class="field" id="deathRow" hidden><label>Died <span class="muted">— year or full date, if known</span></label>
+      <div class="dateinp"><input id="f_Died" inputmode="numeric" autocomplete="off" placeholder="2012  or  03-02-2012" oninput="App.dateSync()">
+        <button type="button" class="icon-btn" title="Pick a date" onclick="App.pickDate('Died')">📅</button><input type="date" id="f_DiedPick" tabindex="-1" onchange="App.datePicked('Died')"></div></div>
     <div class="sub" id="ageHint" style="margin:-4px 0 10px"></div>
     <div class="field"><label>Village</label><input id="f_Village" placeholder="e.g. Khaboniya"></div>
     <div class="field"><label>Mobile number <span class="muted">(optional)</span></label><input id="f_Phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="98765 43210"></div>
@@ -176,6 +174,8 @@
   </div>
 </div>
 
+<button id="qfab" class="fab" hidden onclick="App.quickFind()" title="Quick find ( / )">🔍</button>
+<div class="overlay" id="qaOv" onclick="if(event.target===this) App.closeQuick()"><div class="sheet" id="qaBox"></div></div>
 <div id="toast"></div>
 <script type="module" src="app.js"></script>
 </body>

@@ -85,7 +85,19 @@ form input + .btn { margin-top: 8px; }
 /* keep Save / Cancel visible while scrolling long forms */
 .overlay:not(#profOv) .sheet > .actions:last-child { position: sticky; bottom: calc(-1 * max(16px, env(safe-area-inset-bottom))); z-index: 2; background: #fff;
   margin: 14px -16px calc(-1 * max(16px, env(safe-area-inset-bottom))); padding: 10px 16px max(12px, env(safe-area-inset-bottom)); border-top: 1px solid #eee; box-shadow: 0 -6px 12px -8px rgba(0,0,0,.18); }
-.checkline { display: flex; align-items: center; gap: 8px; font-size: 14px; margin: 0 0 10px; }
+.dateinp { display: flex; gap: 6px; align-items: center; position: relative; }
+.dateinp input:first-child { flex: 1; }
+.dateinp input[type=date] { position: absolute; right: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+#ageHint.err { color: #b3261e; }
+.fab { position: fixed; right: 16px; bottom: max(18px, env(safe-area-inset-bottom)); z-index: 25; width: 54px; height: 54px; border-radius: 50%; border: 0;
+  background: var(--accent, #6b4226); color: #fff; font-size: 22px; box-shadow: 0 4px 14px rgba(0,0,0,.28); }
+body.selecting .fab { display: none; }
+#qaOv { z-index: 35; }
+.qa-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.qa-grid .btn { justify-content: flex-start; text-align: left; }
+.item, .node { -webkit-touch-callout: none; }
+.item { user-select: none; -webkit-user-select: none; }
+.checkline { align-items: center; gap: 8px; font-size: 14px; margin: 0 0 10px; }
 .checkline input { width: 18px; height: 18px; }
 .node.dead { filter: grayscale(.55); }
 .dg { opacity: .7; margin-left: 4px; font-weight: 400; }
@@ -190,3 +202,6 @@ form input + .btn { margin-top: 8px; }
 .legend { font-size: 12px; color: var(--muted); margin-top: 6px; }
 
 #toast { position: fixed; left: 50%; bottom: max(18px, env(safe-area-inset-bottom)); transform: translateX(-50%); background: #2a2118; color: #fff; padding: 9px 16px; border-radius: 20px; font-size: 13.5px; z-index: 60; display: none; max-width: 90vw; text-align: center; }
+
+#list { padding-bottom: 80px; }
+body:has(.overlay.show) .fab { display: none; }
